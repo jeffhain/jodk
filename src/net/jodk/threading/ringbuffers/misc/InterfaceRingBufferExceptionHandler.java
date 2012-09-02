@@ -19,8 +19,7 @@ public interface InterfaceRingBufferExceptionHandler {
 
     /**
      * @param exception The exception that propagated from the subscriber.
-     * @param sequence Sequence being processed when the exception occurred,
-     *        or last sequence being processed if exception on batch end.
+     * @param sequence Last sequence for which readEvent has been called.
      * @throws An exception, eventually, to be handled by worker's caller.
      */
     public void handle(Exception exception, long sequence);

@@ -97,13 +97,13 @@ public class MonitorCondilock extends AbstractCondilock {
             final InterfaceBooleanCondition booleanCondition,
             long timeoutNS) throws InterruptedException {
         if (!booleanCondition.isTrue()) {
-            if ((timeoutNS = spinningWaitNanosWhileFalse_notLocked(booleanCondition, timeoutNS)) <= 0) {
+            if ((timeoutNS = spinningWaitNanosWhileFalse(this, booleanCondition, timeoutNS)) <= 0) {
                 return (timeoutNS < 0);
             }
             synchronized (this.mutex) {
                 this.afterLockWaitingForBooleanCondition();
                 try {
-                    return this.blockingWaitNanosWhileFalse_locked(booleanCondition, timeoutNS);
+                    return blockingWaitNanosWhileFalse_TT_locked(this, booleanCondition, timeoutNS);
                 } finally {
                     this.beforeUnlockWaitingForBooleanCondition();
                 }
@@ -118,13 +118,13 @@ public class MonitorCondilock extends AbstractCondilock {
             long endTimeoutTimeNS) throws InterruptedException {
         if (!booleanCondition.isTrue()) {
             long timeoutNS;
-            if ((timeoutNS = spinningWaitUntilNanosTimeoutTimeWhileFalse_notLocked(booleanCondition, endTimeoutTimeNS)) <= 0) {
+            if ((timeoutNS = spinningWaitUntilNanosWhileFalse_TT(this, booleanCondition, endTimeoutTimeNS)) <= 0) {
                 return (timeoutNS < 0);
             }
             synchronized (this.mutex) {
                 this.afterLockWaitingForBooleanCondition();
                 try {
-                    return this.blockingWaitUntilNanosTimeoutTimeWhileFalse_locked(booleanCondition, endTimeoutTimeNS);
+                    return blockingWaitUntilNanosWhileFalse_TT_locked(this, booleanCondition, endTimeoutTimeNS);
                 } finally {
                     this.beforeUnlockWaitingForBooleanCondition();
                 }
@@ -139,13 +139,13 @@ public class MonitorCondilock extends AbstractCondilock {
             long deadlineNS) throws InterruptedException {
         if (!booleanCondition.isTrue()) {
             long timeoutNS;
-            if ((timeoutNS = spinningWaitUntilNanosWhileFalse_notLocked(booleanCondition, deadlineNS)) <= 0) {
+            if ((timeoutNS = spinningWaitUntilNanosWhileFalse_DT(this, booleanCondition, deadlineNS)) <= 0) {
                 return (timeoutNS < 0);
             }
             synchronized (this.mutex) {
                 this.afterLockWaitingForBooleanCondition();
                 try {
-                    return this.blockingWaitUntilNanosWhileFalse_locked(booleanCondition, deadlineNS);
+                    return blockingWaitUntilNanosWhileFalse_DT_locked(this, booleanCondition, deadlineNS);
                 } finally {
                     this.beforeUnlockWaitingForBooleanCondition();
                 }
@@ -190,7 +190,7 @@ public class MonitorCondilock extends AbstractCondilock {
      * Must be called right before unlock,
      * when awaiting on boolean condition.
      * 
-     * Must not be called if afterLockForAwaitOnBooleanCondition()
+     * Must not be called if afterLockWaitingForBooleanCondition()
      * threw an exception.
      */
     protected void beforeUnlockWaitingForBooleanCondition() {

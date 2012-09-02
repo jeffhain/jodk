@@ -32,6 +32,9 @@ public class TestUtils {
     // PUBLIC METHODS
     //--------------------------------------------------------------------------
     
+    /**
+     * @return JVM info to serve as header for tests logs.
+     */
     public static String getJVMInfo() {
         return JVM_INFO;
     }
@@ -45,13 +48,31 @@ public class TestUtils {
     }
     
     /**
-     * Waits a bit, flushes System.out and System.err,
+     * Sleeps in chunks of 10ms, to prevent the risk of a GC
+     * eating the whole sleeping duration, and not letting
+     * program enough duration to make progress.
+     * 
+     * Useful to ensure GC-proof-ness of tests sleeping for
+     * some time to let concurrent treatment make progress.
+     * 
+     * @param ms Duration to sleep for, in milliseconds.
+     */
+    public static void sleepMSInChunks(long ms) {
+        final long chunkMS = 10;
+        while (ms >= chunkMS) {
+            Unchecked.sleepMS(chunkMS);
+            ms -= chunkMS;
+        }
+    }
+    
+    /**
+     * Sleeps 100 ms, flushes System.out and System.err,
      * and triggers a GC.
      */
     public static void settle() {
         // Wait first, in case some short busy-waits or alike are still busy.
         // 100ms should be enough.
-        Unchecked.sleepMS(100);
+        sleepMSInChunks(100);
         // err flush last for it helps error appearing last.
         System.out.flush();
         System.err.flush();

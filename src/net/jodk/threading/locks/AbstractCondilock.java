@@ -25,16 +25,12 @@ import net.jodk.lang.NumbersUtils;
  * spinning waits, before eventual sleeping or blocking wait.
  * 
  * Thread interruption status and boolean condition are checked at each spin.
- * To avoid the overhead of timing method, some parts of spinning wait are non-timed.
  * 
- * Spinning wait is defined as:
- * - non-timed spinning:
- *   - a number of consecutive busy-spins
- *   - the number of times a yield is done followed by the previous number of consecutive busy spins
- * - timed spinning (busy and/or yielding):
- *   - a timeout
- *   - before each yield, a number of busy spins,
- *     function of the duration of the previous yield (if any)
+ * Spinning wait is defined by:
+ * - a timeout (for now, never using deadline, since deadline time is usually
+ *   not accurate enough), which can be approximated as infinite if huge,
+ * - before each yield, a number of busy spins, function of the duration
+ *   of the previous yield (if any)
  * 
  * Waits configuration is retrieved from overridable methods,
  * to allow for memory-cheap static configuration.
@@ -63,13 +59,6 @@ abstract class AbstractCondilock extends AbstractCondition implements InterfaceC
     //--------------------------------------------------------------------------
 
     private static final boolean ASSERTIONS = false;
-
-    /**
-     * We always need timing for blocking waits for a boolean condition,
-     * even if time to wait is huge, for it always makes use of
-     * getMaxBlockingWaitChunkNS(long) method, which requires elapsed time.
-     */
-    private static final boolean ALWAYS_TIME_BLOCKING_WAIT_WHILE_FALSE = true;
     
     //--------------------------------------------------------------------------
     // PUBLIC METHODS
@@ -99,127 +88,6 @@ abstract class AbstractCondilock extends AbstractCondition implements InterfaceC
     // PROTECTED METHODS
     //--------------------------------------------------------------------------
 
-    /*
-     * spinning
-     */
-
-    /**
-     * @throws InterruptedException if current thread is interrupted.
-     */
-    protected final void throwingYield() throws InterruptedException {
-        throwIfInterrupted();
-        Thread.yield();
-        throwIfInterrupted();
-    }
-    
-    /**
-     * Time is tested, and wait done, before any boolean condition evaluation.
-     * 
-     * If the specified timeout is <= 0, the condition is not evaluated and 0 is returned.
-     * Else, if there is no spinning wait, the specified timeout is returned.
-     * Else, spinning waits while regularly evaluating the boolean condition.
-     * 
-     * @param timeoutNS Timeout, in nanoseconds, for whole wait.
-     * @return Remaining time to wait (>=0) if condition was last evaluated as false,
-     *         and Long.MIN_VALUE if condition was evaluated as true.
-     * @throws InterruptedException if current thread is interrupted.
-     */
-    protected final long spinningWaitNanosWhileFalse_notLocked(
-            final InterfaceBooleanCondition booleanCondition,
-            final long timeoutNS) throws InterruptedException {
-        if (timeoutNS <= 0) {
-            throwIfInterrupted();
-            return 0;
-        }
-
-        /*
-         * Non timed busy spins and/or non timed yielding spins.
-         */
-
-        if (this.spinningWaitNanosWhileFalse_notLocked_nonTimed(booleanCondition)) {
-            return Long.MIN_VALUE;
-        }
-
-        /*
-         * Timed busy spins and/or timed yielding spins.
-         */
-
-        final long maxTimedSpinningWaitNS = this.getMaxTimedSpinningWaitNS();
-        if(ASSERTIONS)assert(maxTimedSpinningWaitNS >= 0);
-        if (maxTimedSpinningWaitNS > 0) {
-            // Not waiting more than specified timeout.
-            final long reducedMaxTimedSpinningWaitNS = Math.min(timeoutNS,maxTimedSpinningWaitNS);
-            // This call does at least one check of interruption status.
-            if (this.spinningWaitNanosWhileFalse_notLocked_timed(
-                    booleanCondition,
-                    reducedMaxTimedSpinningWaitNS)) {
-                return Long.MIN_VALUE;
-            }
-            // We consider that (exactly) the same amount of actual time
-            // elapsed (saves us additional calls to timing method, and
-            // should not hurt).
-            // Returned value is >= 0.
-            return timeoutNS - reducedMaxTimedSpinningWaitNS;
-        } else {
-            throwIfInterrupted();
-            return timeoutNS;
-        }
-    }
-
-    /**
-     * Time is tested, and wait done, before any boolean condition evaluation.
-     * 
-     * TODO If timing is not done, can return a timeout higher than it should,
-     *      but that should not hurt, since timing is not done only for huge durations.
-     * 
-     * @param endTimeoutTimeNS End timeout time, in nanoseconds, for whole wait.
-     * @return Remaining time to wait (>=0) if condition was last evaluated as false,
-     *         and Long.MIN_VALUE if condition was evaluated as true.
-     * @throws InterruptedException if current thread is interrupted.
-     */
-    protected final long spinningWaitUntilNanosTimeoutTimeWhileFalse_notLocked(
-            final InterfaceBooleanCondition booleanCondition,
-            final long endTimeoutTimeNS) throws InterruptedException {
-        final long timeoutNS;
-        final boolean timing = (endTimeoutTimeNS < INFINITE_DATE_THRESHOLD_NS);
-        if (timing) {
-            timeoutNS = NumbersUtils.minusBounded(endTimeoutTimeNS, this.timeoutTimeNS());
-        } else {
-            timeoutNS = Long.MAX_VALUE;
-        }
-        return this.spinningWaitNanosWhileFalse_notLocked(booleanCondition, timeoutNS);
-    }
-
-    /**
-     * Time is tested, and wait done, before any boolean condition evaluation.
-     * 
-     * TODO If timing is not done, can return a timeout higher than it should,
-     *      but that should not hurt, since timing is not done only for huge durations.
-     * 
-     * @param deadlineNS Deadline, in nanoseconds, for whole wait.
-     * @return Remaining time (in timeout time) to wait (>=0) if condition was last evaluated as false,
-     *         and Long.MIN_VALUE if condition was evaluated as true.
-     * @throws InterruptedException if current thread is interrupted.
-     */
-    protected final long spinningWaitUntilNanosWhileFalse_notLocked(
-            final InterfaceBooleanCondition booleanCondition,
-            final long deadlineNS) throws InterruptedException {
-        // TODO Using timeout and not deadline for busy wait,
-        // for deadline time is typically not accurate enough.
-        final long timeoutNS;
-        final boolean timing = (deadlineNS < INFINITE_DATE_THRESHOLD_NS);
-        if (timing) {
-            timeoutNS = NumbersUtils.minusBounded(deadlineNS, this.deadlineTimeNS());
-        } else {
-            timeoutNS = Long.MAX_VALUE;
-        }
-        return this.spinningWaitNanosWhileFalse_notLocked(booleanCondition, timeoutNS);
-    }
-
-    /*
-     * sleeping
-     */
-
     /**
      * Default sleep wait implementation.
      * Override this to implement your own sleep.
@@ -241,11 +109,208 @@ abstract class AbstractCondilock extends AbstractCondition implements InterfaceC
         throwIfInterrupted();
     }
 
+    /*
+     * configuration
+     */
+    
     /**
-     * Time is tested, and wait done, before any boolean condition evaluation.
+     * Default implementation returns 0.
+     * 
+     * @return The number of busy spins to do for starting spinning wait,
+     *         i.e. before first yield if any.
+     */
+    protected long getNbrOfInitialBusySpins() {
+        return 0L;
+    }
+
+    /**
+     * Default implementation returns 0.
+     * 
+     * You need to override this method so that it returns a value < 0
+     * to enable use of getNbrOfBusySpinsBeforeNextYield(long).
+     * 
+     * @return A value >= 0 to be used, in which case getNbrOfBusySpinsBeforeNextYield(long)
+     *         is not used, else a value < 0, in which case getNbrOfBusySpinsBeforeNextYield(long)
+     *         is used.
+     */
+    protected long getNbrOfBusySpinsAfterEachYield() {
+        return 0L;
+    }
+
+    /**
+     * Default implementation returns 0.
+     * 
+     * You need to override getNbrOfBusySpinsAfterEachYield() so that it returns
+     * a value < 0 to enable use of this method.
+     * 
+     * @param previousYieldDurationNS Duration of previous yield,
+     *        in nanoseconds, as a measure of CPU business.
+     *        This duration is measured using timeoutTimeNS().
+     * @return The number of busy spins to do before next yielding spin.
+     *         Must be >= 0.
+     */
+    protected long getNbrOfBusySpinsBeforeNextYield(long previousYieldDurationNS) {
+        return 0;
+    }
+
+    /**
+     * Default implementation returns 0.
+     * 
+     * @return Max duration, in nanoseconds, for spinning. Must be >= 0.
+     */
+    protected long getMaxSpinningWaitNS() {
+        return 0;
+    }
+
+    //--------------------------------------------------------------------------
+    // PACKAGE-PRIVATE METHODS
+    //--------------------------------------------------------------------------
+
+    /*
+     * spinning
+     */
+
+    /**
      * @throws InterruptedException if current thread is interrupted.
      */
-    protected final boolean sleepingWaitNanosWhileFalse(
+    static void throwingYield() throws InterruptedException {
+        throwIfInterrupted();
+        Thread.yield();
+        throwIfInterrupted();
+    }
+    
+    /**
+     * Time is tested, and wait done, before any boolean condition evaluation.
+     * 
+     * TODO Always using timeout time to measure spinning wait duration,
+     * for deadline time is typically not accurate enough.
+     * 
+     * If the specified timeout is <= 0, the condition is not evaluated and 0 is returned.
+     * Else, if there is no spinning wait, the specified timeout is returned.
+     * Else, spinning waits while regularly evaluating the boolean condition.
+     * 
+     * If timing is not done, can return a timeout higher than it should,
+     * but that should not hurt, since timing is not done only for huge durations,
+     * i.e. when this method only completes when boolean condition is true or
+     * on InterruptedException.
+     * 
+     * @param timeoutNS Timeout, in nanoseconds, for whole wait.
+     * @return Remaining time to wait (>=0) if condition was last evaluated as false,
+     *         and Long.MIN_VALUE if condition was evaluated as true.
+     * @throws InterruptedException if current thread is interrupted.
+     */
+    static long spinningWaitNanosWhileFalse(
+            final AbstractCondilock condilock,
+            final InterfaceBooleanCondition booleanCondition,
+            final long timeoutNS) throws InterruptedException {
+        if (timeoutNS <= 0) {
+            throwIfInterrupted();
+            return 0;
+        }
+
+        final long maxSpinningWaitNS = condilock.getMaxSpinningWaitNS();
+        if(ASSERTIONS)assert(maxSpinningWaitNS >= 0);
+        if (maxSpinningWaitNS <= 0) {
+            throwIfInterrupted();
+            return timeoutNS;
+        }
+
+        /*
+         * Busy spins and/or yielding spins.
+         */
+
+        // Not waiting more than specified timeout.
+        final long reducedMaxSpinningWaitNS = Math.min(timeoutNS,maxSpinningWaitNS);
+        
+        final boolean timing = (reducedMaxSpinningWaitNS < INFINITE_TIMEOUT_THRESHOLD_NS);
+        final long initialTimeoutTimeNS;
+        if (timing) {
+            initialTimeoutTimeNS = condilock.timeoutTimeNS();
+        } else {
+            initialTimeoutTimeNS = 0L;
+        }
+        // This call does at least one check of interruption status.
+        if (spinningWaitNanosWhileFalse_someSpinning(
+                condilock,
+                booleanCondition,
+                reducedMaxSpinningWaitNS,
+                initialTimeoutTimeNS)) {
+            return Long.MIN_VALUE;
+        }
+        // Here, "timing" should be true, since we don't do timing
+        // (except eventually for yields timing) only if timeout
+        // is approximated as infinite.
+        
+        // Might be negative.
+        final long elapsedNS = (condilock.timeoutTimeNS() - initialTimeoutTimeNS);
+        return Math.max(0, timeoutNS - elapsedNS);
+    }
+
+    /**
+     * Time is tested, and wait done, before any boolean condition evaluation.
+     * 
+     * If timing is not done, can return a timeout higher than it should,
+     * but that should not hurt, since timing is not done only for huge durations,
+     * i.e. when this method only completes when boolean condition is true or
+     * on InterruptedException.
+     * 
+     * @param endTimeoutTimeNS End timeout time, in nanoseconds, for whole wait.
+     * @return An estimation (>= 0) of remaining time to wait if condition was last evaluated as false,
+     *         and Long.MIN_VALUE if condition was evaluated as true.
+     * @throws InterruptedException if current thread is interrupted.
+     */
+    static long spinningWaitUntilNanosWhileFalse_TT(
+            final AbstractCondilock condilock,
+            final InterfaceBooleanCondition booleanCondition,
+            final long endTimeoutTimeNS) throws InterruptedException {
+        final long timeoutNS;
+        final boolean timing = (endTimeoutTimeNS < INFINITE_DATE_THRESHOLD_NS);
+        if (timing) {
+            timeoutNS = NumbersUtils.minusBounded(endTimeoutTimeNS, condilock.timeoutTimeNS());
+        } else {
+            timeoutNS = Long.MAX_VALUE;
+        }
+        return spinningWaitNanosWhileFalse(condilock, booleanCondition, timeoutNS);
+    }
+
+    /**
+     * Time is tested, and wait done, before any boolean condition evaluation.
+     * 
+     * If timing is not done, can return a timeout higher than it should,
+     * but that should not hurt, since timing is not done only for huge durations,
+     * i.e. when this method only completes when boolean condition is true or
+     * on InterruptedException.
+     * 
+     * @param deadlineNS Deadline, in nanoseconds, for whole wait.
+     * @return An estimation (>= 0) of remaining time to wait if condition was last evaluated as false,
+     *         and Long.MIN_VALUE if condition was evaluated as true.
+     * @throws InterruptedException if current thread is interrupted.
+     */
+    static long spinningWaitUntilNanosWhileFalse_DT(
+            final AbstractCondilock condilock,
+            final InterfaceBooleanCondition booleanCondition,
+            final long deadlineNS) throws InterruptedException {
+        final long timeoutNS;
+        final boolean timing = (deadlineNS < INFINITE_DATE_THRESHOLD_NS);
+        if (timing) {
+            timeoutNS = NumbersUtils.minusBounded(deadlineNS, condilock.deadlineTimeNS());
+        } else {
+            timeoutNS = Long.MAX_VALUE;
+        }
+        return spinningWaitNanosWhileFalse(condilock, booleanCondition, timeoutNS);
+    }
+
+    /*
+     * sleeping
+     */
+    
+    /**
+     * Time is tested, and wait done, before any boolean condition evaluation.
+     * 
+     * @throws InterruptedException if current thread is interrupted.
+     */
+    static boolean sleepingWaitNanosWhileFalse(
+            final AbstractCondilock condilock,
             final InterfaceBooleanCondition booleanCondition,
             final long timeoutNS) throws InterruptedException {
         final boolean timing = (timeoutNS < INFINITE_TIMEOUT_THRESHOLD_NS);
@@ -254,49 +319,61 @@ abstract class AbstractCondilock extends AbstractCondition implements InterfaceC
              * Using method based on end timeout time, for it is more accurate
              * than accumulating error with intermediate timeouts computations.
              */
-            final long currentTimeoutTimeNS = this.timeoutTimeNS();
+            final long currentTimeoutTimeNS = condilock.timeoutTimeNS();
             final long endTimeoutTimeNS = NumbersUtils.plusBounded(currentTimeoutTimeNS, timeoutNS);
-            return this.sleepingWaitUntilNanosTimeoutTimeWhileFalse_timing(
+            return sleepingWaitUntilNanosWhileFalse_TT_timing(
+                    condilock,
                     booleanCondition,
                     endTimeoutTimeNS,
                     currentTimeoutTimeNS);
         } else {
-            return this.sleepingWaitWhileFalse_noTiming(booleanCondition);
+            return sleepingWaitForeverWhileFalse(
+                    condilock,
+                    booleanCondition);
         }
     }
 
     /**
      * Time is tested, and wait done, before any boolean condition evaluation.
+     * 
      * @throws InterruptedException if current thread is interrupted.
      */
-    protected final boolean sleepingWaitUntilNanosTimeoutTimeWhileFalse(
+    static boolean sleepingWaitUntilNanosWhileFalse_TT(
+            final AbstractCondilock condilock,
             final InterfaceBooleanCondition booleanCondition,
             final long endTimeoutTimeNS) throws InterruptedException {
         final boolean timing = (endTimeoutTimeNS < INFINITE_DATE_THRESHOLD_NS);
         if (timing) {
-            final long currentTimeoutTimeNS = this.timeoutTimeNS();
-            return this.sleepingWaitUntilNanosTimeoutTimeWhileFalse_timing(
+            final long currentTimeoutTimeNS = condilock.timeoutTimeNS();
+            return sleepingWaitUntilNanosWhileFalse_TT_timing(
+                    condilock,
                     booleanCondition,
                     endTimeoutTimeNS,
                     currentTimeoutTimeNS);
         } else {
-            return this.sleepingWaitWhileFalse_noTiming(booleanCondition);
+            return sleepingWaitForeverWhileFalse(
+                    condilock,
+                    booleanCondition);
         }
     }
 
     /**
      * Time is tested, and wait done, before any boolean condition evaluation.
+     * 
      * @throws InterruptedException if current thread is interrupted.
      */
-    protected final boolean sleepingWaitUntilNanosWhileFalse(
+    static boolean sleepingWaitUntilNanosWhileFalse_DT(
+            final AbstractCondilock condilock,
             final InterfaceBooleanCondition booleanCondition,
             long deadlineNS) throws InterruptedException {
+        
         throwIfInterrupted();
+        
         while (true) {
-            if (this.deadlineTimeNS() >= deadlineNS) {
+            if (condilock.deadlineTimeNS() >= deadlineNS) {
                 return false;
             }
-            this.sleepingWait();
+            condilock.sleepingWait();
             if (booleanCondition.isTrue()) {
                 return true;
             }
@@ -309,136 +386,136 @@ abstract class AbstractCondilock extends AbstractCondition implements InterfaceC
 
     /**
      * Boolean condition is evaluated once before any timing consideration.
+     * 
      * @throws InterruptedException if current thread is interrupted.
      */
-    protected final boolean blockingWaitNanosWhileFalse_locked(
+    static boolean blockingWaitNanosWhileFalse_TT_locked(
+            final AbstractCondilock condilock,
             final InterfaceBooleanCondition booleanCondition,
             long timeoutNS) throws InterruptedException {
         throwIfInterrupted();
         if (booleanCondition.isTrue()) {
             return true;
         }
-        final boolean timing = ALWAYS_TIME_BLOCKING_WAIT_WHILE_FALSE || (timeoutNS < INFINITE_TIMEOUT_THRESHOLD_NS);
+        // Need to use timing if using max blocking wait chunks,
+        // else argument for getMaxBlockingWaitChunkNS(long) will
+        // always be 0.
+        final boolean timing = (timeoutNS < INFINITE_TIMEOUT_THRESHOLD_NS) || condilock.useMaxBlockingWaitChunks();
         if (timing) {
             /*
              * Using method based on end timeout time, for it is more accurate
              * than accumulating error with intermediate timeouts computations.
              */
-            final long currentTimeoutTimeNS = this.timeoutTimeNS();
+            final long currentTimeoutTimeNS = condilock.timeoutTimeNS();
             final long endTimeoutTimeNS = NumbersUtils.plusBounded(currentTimeoutTimeNS, timeoutNS);
-            return this.blockingWaitUntilNanosTimeoutTimeWhileFalse_locked_timing(
+            return blockingWaitUntilNanosWhileFalse_TT_locked_timing(
+                    condilock,
                     booleanCondition,
                     endTimeoutTimeNS,
                     currentTimeoutTimeNS);
         } else {
-            return this.blockingWaitWhileFalse_locked_noTiming(booleanCondition);
+            return blockingWaitForeverWhileFalse_noMaxWaitChunks_locked(
+                    condilock,
+                    booleanCondition);
         }
     }
 
     /**
      * Boolean condition is evaluated once before any timing consideration.
+     * 
      * @throws InterruptedException if current thread is interrupted.
      */
-    protected final boolean blockingWaitUntilNanosTimeoutTimeWhileFalse_locked(
+    static boolean blockingWaitUntilNanosWhileFalse_TT_locked(
+            final AbstractCondilock condilock,
             final InterfaceBooleanCondition booleanCondition,
             long endTimeoutTimeNS) throws InterruptedException {
         throwIfInterrupted();
         if (booleanCondition.isTrue()) {
             return true;
         }
-        final boolean timing = ALWAYS_TIME_BLOCKING_WAIT_WHILE_FALSE || (endTimeoutTimeNS < INFINITE_DATE_THRESHOLD_NS);
+        // Need to use timing if using max blocking wait chunks,
+        // else argument for getMaxBlockingWaitChunkNS(long) will
+        // always be 0.
+        final boolean timing = (endTimeoutTimeNS < INFINITE_DATE_THRESHOLD_NS) || condilock.useMaxBlockingWaitChunks();
         if (timing) {
-            final long currentTimeoutTimeNS = this.timeoutTimeNS();
-            return this.blockingWaitUntilNanosTimeoutTimeWhileFalse_locked_timing(
+            final long currentTimeoutTimeNS = condilock.timeoutTimeNS();
+            return blockingWaitUntilNanosWhileFalse_TT_locked_timing(
+                    condilock,
                     booleanCondition,
                     endTimeoutTimeNS,
                     currentTimeoutTimeNS);
         } else {
-            return this.blockingWaitWhileFalse_locked_noTiming(booleanCondition);
+            return blockingWaitForeverWhileFalse_noMaxWaitChunks_locked(
+                    condilock,
+                    booleanCondition);
         }
     }
 
     /**
      * Boolean condition is evaluated once before any timing consideration.
+     * 
      * @throws InterruptedException if current thread is interrupted.
      */
-    protected final boolean blockingWaitUntilNanosWhileFalse_locked(
+    static boolean blockingWaitUntilNanosWhileFalse_DT_locked(
+            final AbstractCondilock condilock,
             final InterfaceBooleanCondition booleanCondition,
             long deadlineNS) throws InterruptedException {
         throwIfInterrupted();
         if (booleanCondition.isTrue()) {
             return true;
         }
-        final long initialTimeoutNS = NumbersUtils.minusBounded(deadlineNS, this.deadlineTimeNS());
-        long timeoutNS = initialTimeoutNS;
-        while (true) {
-            if (timeoutNS <= 0) {
-                return false;
-            }
-            final long elapsedTimeoutTimeNS = Math.max(0L, initialTimeoutNS - timeoutNS);
-            timeoutNS = this.awaitUntilNanos_OrLess(
+        // Need to use timing if using max blocking wait chunks,
+        // else argument for getMaxBlockingWaitChunkNS(long) will
+        // always be 0.
+        final boolean timing = (deadlineNS < INFINITE_DATE_THRESHOLD_NS) || condilock.useMaxBlockingWaitChunks();
+        if (timing) {
+            final long deadlineTimeNS = condilock.deadlineTimeNS();
+            return blockingWaitUntilNanosWhileFalse_DT_locked_timing(
+                    condilock,
+                    booleanCondition,
                     deadlineNS,
-                    timeoutNS,
-                    elapsedTimeoutTimeNS);
-            if (booleanCondition.isTrue()) {
-                return true;
-            }
+                    deadlineTimeNS);
+        } else {
+            /*
+             * We don't bother taking care of getMaxDeadlineBlockingWaitChunkNS(),
+             * since we approximated wait time as infinite anyway, and don't
+             * support the case of current time reaching huge values.
+             */
+            return blockingWaitForeverWhileFalse_noMaxWaitChunks_locked(
+                    condilock,
+                    booleanCondition);
         }
     }
-
+    
     /*
-     * configuration
+     * 
      */
 
-    /**
-     * Default implementation returns 0.
-     * Override this method to specify another value.
-     * 
-     * Duration of these spins is not taken into account in timeouts computation
-     * (used before any call to timeoutTimeNS()).
-     * 
-     * @return Max number of non-timed consecutive busy spins. Must be >= 0.
-     */
-    protected long getNbrOfNonTimedConsecutiveBusySpins() {
-        return 0;
+    static long getNbrOfBusySpinsAfterEachYield(
+            int bigYieldThresholdNS,
+            long nbrOfBusySpinsAfterSmallYield) {
+        if (bigYieldThresholdNS == Integer.MAX_VALUE) {
+            // No need to bother timing yields.
+            return nbrOfBusySpinsAfterSmallYield;
+        }
+        if ((bigYieldThresholdNS|nbrOfBusySpinsAfterSmallYield) == 0) {
+            // No need to bother timing yields.
+            return 0;
+        }
+        return -1;
     }
-
-    /**
-     * Default implementation returns 0.
-     * Override this method to specify another value.
-     * 
-     * @return Max number of non-timed yielding spins, each followed by
-     *         getNbrOfNonTimedConsecutiveBusySpins() consecutive busy spins.
-     *         Must be >= 0.
-     */
-    protected long getNbrOfNonTimedYieldsAndConsecutiveBusySpins() {
-        return 0;
-    }
-
-    /**
-     * Default implementation returns 0.
-     * Override this method to specify another value.
-     * 
-     * @param previousYieldDurationNS Duration of previous yield,
-     *        in nanoseconds, as a measure of threading contention.
-     *        This duration is measured using timeoutTimeNS().
-     *        Long.MAX_VALUE if there was no previous yield,
-     *        i.e. for first timed spinning.
-     * @return The number of timed busy spins to do before next timed yielding spin.
-     *         Must be >= 0.
-     */
-    protected long getNbrOfTimedBusySpinsBeforeNextTimedYield(long previousYieldDurationNS) {
-        return 0;
-    }
-
-    /**
-     * Default implementation returns 0.
-     * Override this method to specify another value.
-     * 
-     * @return Max duration, in nanoseconds, for timed spinning. Must be >= 0.
-     */
-    protected long getMaxTimedSpinningWaitNS() {
-        return 0;
+    
+    static long getNbrOfBusySpinsBeforeNextYield(
+            long previousYieldDurationNS,
+            int bigYieldThresholdNS,
+            long nbrOfBusySpinsAfterSmallYield) {
+        if (previousYieldDurationNS >= bigYieldThresholdNS) {
+            // Too busy CPU: letting CPU to other threads.
+            return 0;
+        } else {
+            // Short yield: busy spinning.
+            return nbrOfBusySpinsAfterSmallYield;
+        }
     }
 
     //--------------------------------------------------------------------------
@@ -448,72 +525,48 @@ abstract class AbstractCondilock extends AbstractCondition implements InterfaceC
     /**
      * Time is tested, and wait done, before any boolean condition evaluation.
      * 
-     * Non timed busy spins and/or non timed yielding spins.
-     * 
-     * @return True if the specified boolean condition was last evaluated as true,
-     *         false otherwise.
-     * @throws InterruptedException if current thread is interrupted.
-     */
-    private boolean spinningWaitNanosWhileFalse_notLocked_nonTimed(
-            final InterfaceBooleanCondition booleanCondition) throws InterruptedException {
-        final long nbrOfNonTimedConsecutiveBusySpins = this.getNbrOfNonTimedConsecutiveBusySpins();
-        long nbrOfNonTimedYieldsAndConsecutiveBusySpins = this.getNbrOfNonTimedYieldsAndConsecutiveBusySpins();
-        if(ASSERTIONS)assert(nbrOfNonTimedConsecutiveBusySpins >= 0);
-        if(ASSERTIONS)assert(nbrOfNonTimedYieldsAndConsecutiveBusySpins >= 0);
-        // Loop for busy spins and/or yielding spins.
-        while (true) {
-            // Loop for busy spins.
-            for (long i=0;i<nbrOfNonTimedConsecutiveBusySpins;i++) {
-                throwIfInterrupted();
-                if (booleanCondition.isTrue()) {
-                    return true;
-                }
-            }
-            // <= instead of ==, for robustness.
-            if (nbrOfNonTimedYieldsAndConsecutiveBusySpins <= 0) {
-                return false;
-            }
-            // Yielding spin.
-            this.throwingYield();
-            if (booleanCondition.isTrue()) {
-                return true;
-            }
-            --nbrOfNonTimedYieldsAndConsecutiveBusySpins;
-        }
-    }
-
-    /**
-     * Time is tested, and wait done, before any boolean condition evaluation.
-     * 
-     * Timed busy spins and/or timed yielding spins.
+     * Busy spins and/or yielding spins.
      * 
      * @return True if the specified boolean condition was last evaluated as true,
      *         false otherwise (i.e. if max spinning wait time elapsed).
      * @throws InterruptedException if current thread is interrupted.
      */
-    private boolean spinningWaitNanosWhileFalse_notLocked_timed(
+    private static boolean spinningWaitNanosWhileFalse_someSpinning(
+            final AbstractCondilock condilock,
             final InterfaceBooleanCondition booleanCondition,
-            final long maxTimedSpinningWaitNS) throws InterruptedException {
+            final long maxSpinningWaitNS,
+            long currentTimeoutTimeNS) throws InterruptedException {
+        
+        final long endTimeoutTimeNS = NumbersUtils.plusBounded(currentTimeoutTimeNS,maxSpinningWaitNS);
+        
+        final long nbrOfInitialBusySpins = condilock.getNbrOfInitialBusySpins();
+        if(ASSERTIONS)assert(nbrOfInitialBusySpins >= 0);
+        
         // Only allows to avoid timing while busy-spinning,
         // for we need to time yield duration anyway.
-        final boolean timing = (maxTimedSpinningWaitNS < INFINITE_TIMEOUT_THRESHOLD_NS);
-        long previousYieldDurationNS = Long.MAX_VALUE;
-        long beforeYieldNS;
-        long currentTimeoutTimeNS = this.timeoutTimeNS();
-        final long endTimeoutTimeNS = NumbersUtils.plusBounded(currentTimeoutTimeNS,maxTimedSpinningWaitNS);
+        final boolean timing = (maxSpinningWaitNS < INFINITE_TIMEOUT_THRESHOLD_NS);
+        
+        final long nbrOfBusySpinsAfterEachYield = condilock.getNbrOfBusySpinsAfterEachYield();
+        final boolean yieldTiming = (nbrOfBusySpinsAfterEachYield < 0);
+        
+        /*
+         * 
+         */
+        
+        long nbrOfBusySpinsBeforeNextYield = nbrOfInitialBusySpins;
+        // Initialized to avoid javac error.
+        long beforeYieldNS = 0L;
         // Loop for busy spins and/or yielding spins.
         while (true) {
-            final long spinsBeforeNextYield = this.getNbrOfTimedBusySpinsBeforeNextTimedYield(previousYieldDurationNS);
-            if(ASSERTIONS)assert(spinsBeforeNextYield >= 0);
             // Loop for busy spins.
-            for (long i=0;i<spinsBeforeNextYield;i++) {
+            for (long i=0;i<nbrOfBusySpinsBeforeNextYield;i++) {
                 // Busy spin.
                 throwIfInterrupted();
                 if (booleanCondition.isTrue()) {
                     return true;
                 }
                 if (timing) {
-                    currentTimeoutTimeNS = this.timeoutTimeNS();
+                    currentTimeoutTimeNS = condilock.timeoutTimeNS();
                     // Timeout check.
                     if (currentTimeoutTimeNS >= endTimeoutTimeNS) {
                         return false;
@@ -521,20 +574,32 @@ abstract class AbstractCondilock extends AbstractCondition implements InterfaceC
                 }
             }
             // Yielding spin.
-            // Not calling timing method if nowNS is fresh
-            // (only treatments known to be fast have been called since its computation).
-            beforeYieldNS = (timing && (spinsBeforeNextYield > 0)) ? currentTimeoutTimeNS : this.timeoutTimeNS();
-            this.throwingYield();
+            if (yieldTiming) {
+                // Not calling timing method if nowNS is fresh
+                // (only treatments known to be fast have been called since its computation).
+                beforeYieldNS = (timing && (nbrOfBusySpinsBeforeNextYield > 0)) ? currentTimeoutTimeNS : condilock.timeoutTimeNS();
+            }
+            throwingYield();
             if (booleanCondition.isTrue()) {
                 return true;
             }
-            currentTimeoutTimeNS = this.timeoutTimeNS();
-            // Timeout check.
-            if (currentTimeoutTimeNS >= endTimeoutTimeNS) {
-                return false;
+            if (timing || yieldTiming) {
+                currentTimeoutTimeNS = condilock.timeoutTimeNS();
             }
-            // Max in case of backward-jumping time.
-            previousYieldDurationNS = Math.max(0, currentTimeoutTimeNS - beforeYieldNS);
+            if (timing) {
+                // Timeout check.
+                if (currentTimeoutTimeNS >= endTimeoutTimeNS) {
+                    return false;
+                }
+            }
+            if (yieldTiming) {
+                // Max in case of backward-jumping time.
+                final long previousYieldDurationNS = Math.max(0, currentTimeoutTimeNS - beforeYieldNS);
+                nbrOfBusySpinsBeforeNextYield = condilock.getNbrOfBusySpinsBeforeNextYield(previousYieldDurationNS);
+            } else {
+                nbrOfBusySpinsBeforeNextYield = nbrOfBusySpinsAfterEachYield;
+            }
+            if(ASSERTIONS)assert(nbrOfBusySpinsBeforeNextYield >= 0);
         }
     }
 
@@ -548,30 +613,36 @@ abstract class AbstractCondilock extends AbstractCondition implements InterfaceC
      * @param currentTimeoutTimeNS A recent result of timeoutTimeNS() method.
      * @throws InterruptedException if current thread is interrupted.
      */
-    private boolean sleepingWaitUntilNanosTimeoutTimeWhileFalse_timing(
+    private static boolean sleepingWaitUntilNanosWhileFalse_TT_timing(
+            final AbstractCondilock condilock,
             final InterfaceBooleanCondition booleanCondition,
             final long endTimeoutTimeNS,
             long currentTimeoutTimeNS) throws InterruptedException {
+        
         throwIfInterrupted();
+        
         while (true) {
             if (currentTimeoutTimeNS >= endTimeoutTimeNS) {
                 return false;
             }
-            this.sleepingWait();
+            condilock.sleepingWait();
             if (booleanCondition.isTrue()) {
                 return true;
             }
-            currentTimeoutTimeNS = this.timeoutTimeNS();
+            currentTimeoutTimeNS = condilock.timeoutTimeNS();
         }
     }
 
     /**
      * Wait done before any boolean condition evaluation.
+     * 
      * @throws InterruptedException if current thread is interrupted.
      */
-    private boolean sleepingWaitWhileFalse_noTiming(final InterfaceBooleanCondition booleanCondition) throws InterruptedException {
+    private static boolean sleepingWaitForeverWhileFalse(
+            final AbstractCondilock condilock,
+            final InterfaceBooleanCondition booleanCondition) throws InterruptedException {
         while (true) {
-            this.sleepingWait();
+            condilock.sleepingWait();
             if (booleanCondition.isTrue()) {
                 return true;
             }
@@ -579,7 +650,7 @@ abstract class AbstractCondilock extends AbstractCondition implements InterfaceC
     }
 
     /*
-     * blocking
+     * blocking, timeout time, timing
      */
     
     /**
@@ -588,35 +659,85 @@ abstract class AbstractCondilock extends AbstractCondition implements InterfaceC
      * @param currentTimeoutTimeNS A recent result of timeoutTimeNS() method.
      * @throws InterruptedException if current thread is interrupted.
      */
-    private boolean blockingWaitUntilNanosTimeoutTimeWhileFalse_locked_timing(
+    private static boolean blockingWaitUntilNanosWhileFalse_TT_locked_timing(
+            final AbstractCondilock condilock,
             final InterfaceBooleanCondition booleanCondition,
             final long endTimeoutTimeNS,
             long currentTimeoutTimeNS) throws InterruptedException {
+        
         throwIfInterrupted();
+        
         final long initialTimeoutTimeNS = currentTimeoutTimeNS;
         while (true) {
             if (currentTimeoutTimeNS >= endTimeoutTimeNS) {
                 return false;
             }
             final long elapsedTimeoutTimeNS = Math.max(0L, currentTimeoutTimeNS - initialTimeoutTimeNS);
-            this.awaitUntilNanosTimeoutTime_OrLess(
+            awaitUntilNanos_TT_OrLess(
+                    condilock,
                     endTimeoutTimeNS,
                     currentTimeoutTimeNS,
                     elapsedTimeoutTimeNS);
             if (booleanCondition.isTrue()) {
                 return true;
             }
-            currentTimeoutTimeNS = this.timeoutTimeNS();
+            currentTimeoutTimeNS = condilock.timeoutTimeNS();
         }
     }
-
+    
+    /*
+     * blocking, deadline time, timing
+     */
+    
     /**
-     * Wait done before any boolean condition evaluation.
+     * Time is tested, and wait done, before any boolean condition evaluation.
+     * 
+     * @param currentDeadlineTimeNS A recent result of deadlineTimeNS() method.
      * @throws InterruptedException if current thread is interrupted.
      */
-    private boolean blockingWaitWhileFalse_locked_noTiming(final InterfaceBooleanCondition booleanCondition) throws InterruptedException {
+    private static boolean blockingWaitUntilNanosWhileFalse_DT_locked_timing(
+            final AbstractCondilock condilock,
+            final InterfaceBooleanCondition booleanCondition,
+            final long deadlineNS,
+            long currentDeadlineTimeNS) throws InterruptedException {
+        
+        throwIfInterrupted();
+        
+        final long initialDeadlineTimeNS = currentDeadlineTimeNS;
         while (true) {
-            this.await();
+            if (currentDeadlineTimeNS >= deadlineNS) {
+                return false;
+            }
+            final long elapsedDeadlineTimeNS = Math.max(0L, currentDeadlineTimeNS - initialDeadlineTimeNS);
+            awaitUntilNanos_DT_OrLessOrLess(
+                    condilock,
+                    deadlineNS,
+                    currentDeadlineTimeNS,
+                    elapsedDeadlineTimeNS);
+            if (booleanCondition.isTrue()) {
+                return true;
+            }
+            currentDeadlineTimeNS = condilock.deadlineTimeNS();
+        }
+    }
+    
+    /*
+     * blocking, forever, no max wait chunks
+     */
+    
+    /**
+     * Wait done before any boolean condition evaluation.
+     * 
+     * Must not be used if useMaxBlockingWaitChunks() returned true,
+     * for it does not make use of getMaxBlockingWaitChunkNS(long).
+     * 
+     * @throws InterruptedException if current thread is interrupted.
+     */
+    private static boolean blockingWaitForeverWhileFalse_noMaxWaitChunks_locked(
+            final AbstractCondilock condilock,
+            final InterfaceBooleanCondition booleanCondition) throws InterruptedException {
+        while (true) {
+            condilock.awaitNanosNoEstimate(Long.MAX_VALUE);
             if (booleanCondition.isTrue()) {
                 return true;
             }

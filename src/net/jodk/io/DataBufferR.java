@@ -25,8 +25,6 @@ import net.jodk.lang.LangUtils;
  * read/write class, overriding the mutation methods to throw a
  * ReadOnlyBufferException and overriding the view-buffer methods
  * to return an instance of this class rather than of the superclass.
- * 
- * Package-private.
  */
 final class DataBufferR extends DataBuffer {
 

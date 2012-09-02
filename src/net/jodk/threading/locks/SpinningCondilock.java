@@ -69,7 +69,7 @@ public class SpinningCondilock extends AbstractCondilock {
             final InterfaceBooleanCondition booleanCondition,
             long timeoutNS) throws InterruptedException {
         if (!booleanCondition.isTrue()) {
-            if ((timeoutNS = spinningWaitNanosWhileFalse_notLocked(booleanCondition, timeoutNS)) <= 0) {
+            if ((timeoutNS = spinningWaitNanosWhileFalse(this, booleanCondition, timeoutNS)) <= 0) {
                 return (timeoutNS < 0);
             }
         }
@@ -83,7 +83,7 @@ public class SpinningCondilock extends AbstractCondilock {
             throws InterruptedException {
         if (!booleanCondition.isTrue()) {
             long timeoutNS;
-            if ((timeoutNS = spinningWaitUntilNanosTimeoutTimeWhileFalse_notLocked(booleanCondition, endTimeoutTimeNS)) <= 0) {
+            if ((timeoutNS = spinningWaitUntilNanosWhileFalse_TT(this, booleanCondition, endTimeoutTimeNS)) <= 0) {
                 return (timeoutNS < 0);
             }
         }
@@ -95,9 +95,9 @@ public class SpinningCondilock extends AbstractCondilock {
             final InterfaceBooleanCondition booleanCondition,
             long deadlineNS) throws InterruptedException {
         if (!booleanCondition.isTrue()) {
-            long nanosTimeout;
-            if ((nanosTimeout = spinningWaitUntilNanosWhileFalse_notLocked(booleanCondition, deadlineNS)) <= 0) {
-                return (nanosTimeout < 0);
+            long timeoutNS;
+            if ((timeoutNS = spinningWaitUntilNanosWhileFalse_DT(this, booleanCondition, deadlineNS)) <= 0) {
+                return (timeoutNS < 0);
             }
         }
         return true;
@@ -124,7 +124,7 @@ public class SpinningCondilock extends AbstractCondilock {
     }
     
     @Override
-    protected final long getMaxTimedSpinningWaitNS() {
+    protected final long getMaxSpinningWaitNS() {
         return Long.MAX_VALUE;
     }
 }

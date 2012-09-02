@@ -74,19 +74,19 @@ public class UnicastRingBuffer extends AbstractRingBuffer {
      *   - signaled: none
      *   
      * - event reading end for multi-subscriber case:
-     *   - transition: (s,BEING_READ) ---(lazy if readLazySet)---> (s+n,WRITABLE)
+     *   - transition: (s,BEING_READ) ---(lazy if readLazySets)---> (s+n,WRITABLE)
      *   - by: subscribers
      *   - precondition: being the subscriber who CASed the value
      *   - signaled: readWaitCondilock
      *   
      * - event reading end for single-subscriber case:
-     *   - transition: (s,READABLE) ---(lazy if readLazySet)---> (s+n,WRITABLE)
+     *   - transition: (s,READABLE) ---(lazy if readLazySets)---> (s+n,WRITABLE)
      *   - by: subscribers
      *   - precondition: being the subscriber
      *   - signaled: readWaitCondilock
      * 
      * - writable event rejection:
-     *   - transition: (s,WRITABLE) ---(lazy if writeLazySet)---> (s,REJECTED)
+     *   - transition: (s,WRITABLE) ---(lazy if writeLazySets)---> (s,REJECTED)
      *   - by: publisher
      *   - precondition: having acquired corresponding sequence from sequencer
      *   - signaled: writeWaitCondilock
@@ -137,6 +137,16 @@ public class UnicastRingBuffer extends AbstractRingBuffer {
      * of this class.
      */
     
+    /*
+     * TODO See which scales better.
+     * To allow for single-worker-signaling on publish, and reduce workers
+     * catch-up latency (and even possibly remove the need for logarithmic
+     * scan), it was tried to have a shared volatile "max reached sequence",
+     * set by workers just before read or after jump-up, possibly only every
+     * several (like 16) sequences, either lazily or with a test and a CAS
+     * to ensure no backward-jump, but it seems worse that way.
+     */
+    
     //--------------------------------------------------------------------------
     // CONFIGURATION
     //--------------------------------------------------------------------------
@@ -148,9 +158,13 @@ public class UnicastRingBuffer extends AbstractRingBuffer {
      * that triggers switch to logarithmic scan.
      * 
      * Logarithmic scan is typically slower than linear scan
-     * for small "distances", possibly because due to non-linear
+     * for small "distances", possibly due to non-linear
      * memory usage, hence this threshold, but it helps a lot
      * for large ring buffers.
+     * 
+     * TODO Run tests once with a small value (like 1) to check that it works
+     * (using large ring buffers when testing instead, might not trigger it
+     * often enough).
      */
     private static final int LOG_SCAN_THRESHOLD = 1024;
 
@@ -163,10 +177,10 @@ public class UnicastRingBuffer extends AbstractRingBuffer {
      */
 
     private static class MyWorkerWaitStopBC implements InterfaceBooleanCondition {
-        protected final MyUnicastWorker worker;
-        protected PostPaddedAtomicLong entry_WWSBC;
-        protected long seqStat_WWSBC;
-        protected int localState_WWSBC;
+        final MyUnicastWorker worker;
+        PostPaddedAtomicLong entry_WWSBC;
+        long seqStat_WWSBC;
+        int localState_WWSBC;
         private boolean trueBecauseOfState_WWSBC;
         public MyWorkerWaitStopBC(final MyUnicastWorker worker) {
             this.worker = worker;
@@ -203,7 +217,7 @@ public class UnicastRingBuffer extends AbstractRingBuffer {
      * due to non-monotonicity.
      */
     private static class MyWorkerWaitStopBC_NM extends MyWorkerWaitStopBC {
-        private final LongCounter pubSeqNM;
+        final LongCounter pubSeqNM;
         public MyWorkerWaitStopBC_NM(MyUnicastWorker worker) {
             super(worker);
             this.pubSeqNM =  worker.ringBuffer.pubSeqNM;
@@ -273,9 +287,10 @@ public class UnicastRingBuffer extends AbstractRingBuffer {
         @Override
         protected void afterLastMaxPassedSequenceSetting() {
             // Nothing to do: for unicast ring buffer,
-            // we signal proper condilocks aside from
-            // max passed sequence setting, which is
-            // rarely done.
+            // we only set volatile MPS on worker's
+            // completion, and don't signal condilock
+            // after set, for we suppose noone waits
+            // for it to make progress.
         }
         @Override
         protected void innerRunWorker(int recentState) throws InterruptedException {
@@ -293,12 +308,12 @@ public class UnicastRingBuffer extends AbstractRingBuffer {
          * when a worker is late one round or more.
          * 
          * Causes non-linear memory access, so can make things
-         * actually slower, but it does not hurt much for small ring buffers,
-         * and can help nicely for huge ones (100k elements or more).
+         * actually slower, but can also help nicely for huge
+         * ring buffers (100k elements or more).
          * 
          * Designed to be called only if the worker was late on its
          * attempt sequence, and computed the specified next attempt
-         * sequence as "sequence - jump + 1".
+         * sequence as "sequence - capacity + 1".
          * 
          * Useless if single subscriber (but then worker never late,
          * so not called).
@@ -306,10 +321,6 @@ public class UnicastRingBuffer extends AbstractRingBuffer {
         private static long logarithmicScan(
                 UnicastRingBuffer ringBuffer,
                 long attemptSequenceFrom) {
-            // Possibly not late (if not late, it s result).
-            // but rare: if late (one round or more),
-            // front can be anywhere in the ring buffer.
-            // ===> should maybe start with width = half the ring buffer ???
             long lowSeq = attemptSequenceFrom;
 
             // Not starting with a width of 1,
@@ -400,7 +411,7 @@ public class UnicastRingBuffer extends AbstractRingBuffer {
             }
 
             long attemptSequence = worker.getMaxPassedSequenceLocal() + 1;
-            
+
             int lateCounter = 0;
             
             try {
@@ -416,17 +427,18 @@ public class UnicastRingBuffer extends AbstractRingBuffer {
                         // Sequence that we would skip.
                         final long seqForLateness = (status == ES_BEING_READ) ? sequence+jump : sequence;
                         if (seqForLateness > attemptSequence) {
-                            // Subscriber late one round or more: catching-up
-                            // by jumping at start of current round, supposing
-                            // current round ends up at this sequence (i.e. that
-                            // this sequence is currently the highest in the ring buffer).
+                            // Subscriber late: catching-up by jumping at start
+                            // of current round, supposing current round ends
+                            // at this sequence (i.e. that this sequence is currently
+                            // the highest in the ring buffer), to make sure not
+                            // to skip any readable sequence.
                             attemptSequence = seqForLateness - jump + 1;
                             if (++lateCounter == LOG_SCAN_THRESHOLD) {
                                 // We have been late many consecutive times with linear scan:
                                 // switching to logarithmic scan.
                                 attemptSequence = logarithmicScan(ringBuffer, attemptSequence);
                                 // Allowing for some linear scan after a logarithmic scan,
-                                // since if we are late again it's hopefully not be by much.
+                                // since if we are late again it's hopefully not by much.
                                 lateCounter = 0;
                             }
                             continue LoopNewAttempt;
@@ -981,9 +993,9 @@ public class UnicastRingBuffer extends AbstractRingBuffer {
              * might actually find something to process, to make
              * sure all workers always end up at highest published
              * sequence. Otherwise, when an event is published,
-             * woken-up workers might have to catch-up all ring buffer's
-             * length to find the event to process, which could cause
-             * high latency.
+             * woken-up workers might have to scan a lot of entries
+             * while catching-up (before switching to logarithmic scan),
+             * which would increase latency.
              */
             port.writeWaitCondilock.signalAllInLock();
         }
@@ -1818,14 +1830,14 @@ public class UnicastRingBuffer extends AbstractRingBuffer {
     }
 
     //--------------------------------------------------------------------------
-    // PROTECTED METHODS
+    // PACKAGE-PRIVATE METHODS
     //--------------------------------------------------------------------------
 
     /**
      * @param executor If null, creates a non-service ring buffer.
      * @param rejectedEventHandler Null if and only if executor is null.
      */
-    protected UnicastRingBuffer(
+    UnicastRingBuffer(
             int bufferCapacity,
             int pubSeqNbrOfAtomicCounters,
             boolean singleSubscriber,
@@ -1897,7 +1909,7 @@ public class UnicastRingBuffer extends AbstractRingBuffer {
      */
 
     @Override
-    protected void signalSubscribers() {
+    void signalSubscribers() {
         this.readWaitCondilock.signalAllInLock();
         this.writeWaitCondilock.signalAllInLock();
     }
@@ -1906,13 +1918,13 @@ public class UnicastRingBuffer extends AbstractRingBuffer {
      * Implementations of service-specific methods.
      */
 
-    protected void shutdownImpl() {
+    void shutdownImpl() {
         // Using main lock to ensure consistency between permission
         // checks and actual shutdown, in particular so that we checked
         // permissions for all eventually subsequently interrupted threads.
         final boolean stateChanged;
         boolean neverRunning = false;
-        mainLock.lock();
+        this.mainLock.lock();
         try {
             checkShutdownAccessIfNeeded(false);
             // Using CASes, which would update state properly (order matters) even if used concurrently.
@@ -1924,7 +1936,7 @@ public class UnicastRingBuffer extends AbstractRingBuffer {
                 this.signalAllInLockWriteRead();
             }
         } finally {
-            mainLock.unlock();
+            this.mainLock.unlock();
         }
 
         if (stateChanged) {
@@ -1935,14 +1947,14 @@ public class UnicastRingBuffer extends AbstractRingBuffer {
     /**
      * @param interruptIfPossible If true, attempts to interrupt running workers.
      */
-    protected long[] shutdownNowImpl(boolean interruptIfPossible) {
+    long[] shutdownNowImpl(boolean interruptIfPossible) {
         // Using main mutex to ensure consistency between permission
         // checks and actual shutdown, in particular so that we checked
         // permissions for all eventually subsequently interrupted threads.
         final boolean stateChanged;
         final boolean wasShutdownUnused;
         boolean neverRunning = false;
-        mainLock.lock();
+        this.mainLock.lock();
         try {
             // Always possible.
             final boolean interruption = interruptIfPossible;
@@ -1964,7 +1976,7 @@ public class UnicastRingBuffer extends AbstractRingBuffer {
                 this.signalAllInLockWriteRead();
             }
         } finally {
-            mainLock.unlock();
+            this.mainLock.unlock();
         }
 
         final long[] rejectedSequencesRanges;
@@ -1984,10 +1996,10 @@ public class UnicastRingBuffer extends AbstractRingBuffer {
         return rejectedSequencesRanges;
     }
 
-    //--------------------------------------------------------------------------
-    // PACKAGE-PRIVATE METHODS
-    //--------------------------------------------------------------------------
-
+    /*
+     * 
+     */
+    
     @Override
     MyAbstractWorker newWorkerRaw(
             final InterfaceRingBufferSubscriber subscriber,

@@ -17,7 +17,13 @@ package net.jodk.threading.locks;
 
 public class ReentrantCheckerLockSample {
 
+    //--------------------------------------------------------------------------
+    // PUBLIC TREATMENTS
+    //--------------------------------------------------------------------------
+    
     public static void main(String[] args) {
+        System.out.println("--- "+CondilockSample.class.getSimpleName()+"... ---");
+
         ReentrantCheckerLock fastLock = new ReentrantCheckerLock("FAST LOCK");
         ReentrantCheckerLock slowLock = new ReentrantCheckerLock("SLOW LOCK",false,fastLock);
 
@@ -73,5 +79,7 @@ public class ReentrantCheckerLockSample {
         } finally {
             fastLock.unlock();
         }
+        
+        System.out.println("--- ..."+CondilockSample.class.getSimpleName()+" ---");
     }
 }

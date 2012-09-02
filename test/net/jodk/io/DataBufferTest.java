@@ -37,6 +37,16 @@ public class DataBufferTest extends AbstractBufferOpTezt {
      * Enough for a long and 2 bytes.
      */
     private static final int DEFAULT_LIMIT = 10;
+    
+    /**
+     * Float.floatToRawIntBits(Float.intBitsToFloat(int))
+     * and
+     * Double.doubleToRawLongBits(Double.longBitsToDouble(long))
+     * are not identity on some architectures (in case of NaN,
+     * first bit of the mantissa is set to 1 by either method),
+     * so we skip these cases.
+     */
+    private static final boolean AVOID_NAN_BUG = true;
 
     //--------------------------------------------------------------------------
     // PRIVATE CLASSES
@@ -1515,13 +1525,23 @@ public class DataBufferTest extends AbstractBufferOpTezt {
                         if (random.nextBoolean()) {
                             assertSame(tab.buffer, tab.buffer.putIntAt(index, (int)value));
                         } else {
-                            assertSame(tab.buffer, tab.buffer.putFloatAt(index, Float.intBitsToFloat((int)value)));
+                            float fp = Float.intBitsToFloat((int)value);
+                            if (AVOID_NAN_BUG && Float.isNaN(fp)) {
+                                assertSame(tab.buffer, tab.buffer.putIntAt(index, (int)value));
+                            } else {
+                                assertSame(tab.buffer, tab.buffer.putFloatAt(index, fp));
+                            }
                         }
                     } else {
                         if (random.nextBoolean()) {
                             assertSame(tab.buffer, tab.buffer.putLongAt(index, value));
                         } else {
-                            assertSame(tab.buffer, tab.buffer.putDoubleAt(index, Double.longBitsToDouble(value)));
+                            double fp = Double.longBitsToDouble(value);
+                            if (AVOID_NAN_BUG && Double.isNaN(fp)) {
+                                assertSame(tab.buffer, tab.buffer.putLongAt(index, value));
+                            } else {
+                                assertSame(tab.buffer, tab.buffer.putDoubleAt(index, fp));
+                            }
                         }
                     }
                     assertEquals(previousBitPosition,tab.buffer.bitPosition());
@@ -1569,13 +1589,23 @@ public class DataBufferTest extends AbstractBufferOpTezt {
                         if (random.nextBoolean()) {
                             result = tab.buffer.getIntAt(index);
                         } else {
-                            result = Float.floatToRawIntBits(tab.buffer.getFloatAt(index));
+                            float fp = tab.buffer.getFloatAt(index);
+                            if (AVOID_NAN_BUG && Float.isNaN(fp)) {
+                                result = tab.buffer.getIntAt(index);
+                            } else {
+                                result = Float.floatToRawIntBits(fp);
+                            }
                         }
                     } else {
                         if (random.nextBoolean()) {
                             result = tab.buffer.getLongAt(index);
                         } else {
-                            result = Double.doubleToRawLongBits(tab.buffer.getDoubleAt(index));
+                            double fp = tab.buffer.getDoubleAt(index);
+                            if (AVOID_NAN_BUG && Double.isNaN(fp)) {
+                                result = tab.buffer.getLongAt(index);
+                            } else {
+                                result = Double.doubleToRawLongBits(fp);
+                            }
                         }
                     }
                     assertEquals(previousBitPosition,tab.buffer.bitPosition());
@@ -1636,13 +1666,23 @@ public class DataBufferTest extends AbstractBufferOpTezt {
                             if (random.nextBoolean()) {
                                 assertSame(tab.buffer, tab.buffer.putInt((int)value));
                             } else {
-                                assertSame(tab.buffer, tab.buffer.putFloat(Float.intBitsToFloat((int)value)));
+                                float fp = Float.intBitsToFloat((int)value);
+                                if (AVOID_NAN_BUG && Float.isNaN(fp)) {
+                                    assertSame(tab.buffer, tab.buffer.putInt((int)value));
+                                } else {
+                                    assertSame(tab.buffer, tab.buffer.putFloat(fp));
+                                }
                             }
                         } else {
                             if (random.nextBoolean()) {
                                 assertSame(tab.buffer, tab.buffer.putLong(value));
                             } else {
-                                assertSame(tab.buffer, tab.buffer.putDouble(Double.longBitsToDouble(value)));
+                                double fp = Double.longBitsToDouble(value);
+                                if (AVOID_NAN_BUG && Double.isNaN(fp)) {
+                                    assertSame(tab.buffer, tab.buffer.putLong(value));
+                                } else {
+                                    assertSame(tab.buffer, tab.buffer.putDouble(fp));
+                                }
                             }
                         }
                     } catch (BufferOverflowException e) {
@@ -1695,13 +1735,25 @@ public class DataBufferTest extends AbstractBufferOpTezt {
                             if (random.nextBoolean()) {
                                 result = tab.buffer.getInt();
                             } else {
-                                result = Float.floatToRawIntBits(tab.buffer.getFloat());
+                                float fp = tab.buffer.getFloat();
+                                if (AVOID_NAN_BUG && Float.isNaN(fp)) {
+                                    tab.buffer.bitPosition(tab.buffer.bitPosition()-bitZise);
+                                    result = tab.buffer.getInt();
+                                } else {
+                                    result = Float.floatToRawIntBits(fp);
+                                }
                             }
                         } else {
                             if (random.nextBoolean()) {
                                 result = tab.buffer.getLong();
                             } else {
-                                result = Double.doubleToRawLongBits(tab.buffer.getDouble());
+                                double fp = tab.buffer.getDouble();
+                                if (AVOID_NAN_BUG && Double.isNaN(fp)) {
+                                    tab.buffer.bitPosition(tab.buffer.bitPosition()-bitZise);
+                                    result = tab.buffer.getLong();
+                                } else {
+                                    result = Double.doubleToRawLongBits(fp);
+                                }
                             }
                         }
                     } catch (BufferUnderflowException e) {

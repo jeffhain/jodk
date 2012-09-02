@@ -24,8 +24,6 @@ import java.nio.ByteOrder;
  * Only big endian or little endian versions are used, depending on
  * whether the ByteBuffer is respectively big endian or little endian.
  * This allows not to set ByteBuffer order in these methods.
- * 
- * Package-private.
  */
 final class ByteBufferBTHelper extends BaseBTHelper {
 

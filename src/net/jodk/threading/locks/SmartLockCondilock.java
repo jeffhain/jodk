@@ -23,8 +23,8 @@ import net.jodk.threading.PostPaddedAtomicLong;
 
 /**
  * Condilock based on a Lock and a Condition.
- * Allows for configuration of spinning wait (busy and/or yielding,
- * non timed and/or timed), and in-lock signaling elision.
+ * Allows for configuration of spinning wait (busy and/or yielding),
+ * and in-lock signaling elision.
  */
 public class SmartLockCondilock extends LockCondilock {
     
@@ -32,22 +32,20 @@ public class SmartLockCondilock extends LockCondilock {
     // MEMBERS
     //--------------------------------------------------------------------------
 
-    private final long nbrOfNonTimedConsecutiveBusySpins;
-
-    private final long nbrOfNonTimedYieldsAndConsecutiveBusySpins;
-    
-    private final long maxTimedSpinningWaitNS;
-
+    private final long nbrOfInitialBusySpins;
     private final int bigYieldThresholdNS;
-    
     private final long nbrOfBusySpinsAfterSmallYield;
-    
+    private final long maxSpinningWaitNS;
+
     private final boolean elusiveInLockSignaling;
-    
     private final long initialBlockingWaitChunkNS;
     private final double blockingWaitChunkIncreaseRate;
 
     private final PostPaddedAtomicLong nbrOfLockersToSignal = new PostPaddedAtomicLong();
+    /**
+     * To avoid some volatile reads.
+     */
+    private long nbrOfLockersToSignal_inLock;
 
     //--------------------------------------------------------------------------
     // PUBLIC METHODS
@@ -57,158 +55,22 @@ public class SmartLockCondilock extends LockCondilock {
      * Creates a condilock based on a default lock.
      */
     public SmartLockCondilock(
-            long nbrOfBusySpinsBeforeEachYield,
-            long maxTimedSpinningWaitNS) {
-        this(
-                newDefaultLock(),
-                nbrOfBusySpinsBeforeEachYield,
-                maxTimedSpinningWaitNS);
-    }
-    
-    /**
-     * Creates a condilock based on the specified lock
-     * and a new condition obtained from it.
-     */
-    public SmartLockCondilock(
-            final Lock lock,
-            long nbrOfBusySpinsBeforeEachYield,
-            long maxTimedSpinningWaitNS) {
-        this(
-                lock,
-                lock.newCondition(),
-                nbrOfBusySpinsBeforeEachYield,
-                maxTimedSpinningWaitNS);
-    }
-    
-    /**
-     * @param lock Lock to use for locking.
-     * @param condition A condition based on the specified lock.
-     * @param nbrOfBusySpinsBeforeEachYield Number of non-timed busy spins done
-     *        before timed spinning, and then number of timed busy spins done
-     *        after each timed yield. Must be >= 0.
-     * @param maxTimedSpinningWaitNS Max duration, in nanoseconds, for timed spinning
-     *        (busy or yielding) wait. Must be >= 0.
-     */
-    public SmartLockCondilock(
-            final Lock lock,
-            final Condition condition,
-            long nbrOfBusySpinsBeforeEachYield,
-            long maxTimedSpinningWaitNS) {
-        this(
-                lock,
-                condition,
-                nbrOfBusySpinsBeforeEachYield,
-                maxTimedSpinningWaitNS,
-                false, // elusiveInLockSignaling
-                Long.MAX_VALUE, // initialBlockingWaitChunkNS
-                0.0); // blockingWaitChunkIncreaseRate
-    }
-
-    /*
-     * 
-     */
-    
-    /**
-     * Creates a condilock based on a default lock.
-     */
-    public SmartLockCondilock(
-            long nbrOfBusySpinsBeforeEachYield,
-            long maxTimedSpinningWaitNS,
-            boolean elusiveInLockSignaling,
-            long initialBlockingWaitChunkNS,
-            double blockingWaitChunkIncreaseRate) {
-        this(
-                newDefaultLock(),
-                nbrOfBusySpinsBeforeEachYield,
-                maxTimedSpinningWaitNS,
-                elusiveInLockSignaling,
-                initialBlockingWaitChunkNS,
-                blockingWaitChunkIncreaseRate);
-    }
-    
-    /**
-     * Creates a condilock based on the specified lock
-     * and a new condition obtained from it.
-     */
-    public SmartLockCondilock(
-            final Lock lock,
-            long nbrOfBusySpinsBeforeEachYield,
-            long maxTimedSpinningWaitNS,
-            boolean elusiveInLockSignaling,
-            long initialBlockingWaitChunkNS,
-            double blockingWaitChunkIncreaseRate) {
-        this(
-                lock,
-                lock.newCondition(),
-                nbrOfBusySpinsBeforeEachYield,
-                maxTimedSpinningWaitNS,
-                elusiveInLockSignaling,
-                initialBlockingWaitChunkNS,
-                blockingWaitChunkIncreaseRate);
-    }
-    
-    /**
-     * @param lock Lock to use for locking.
-     * @param condition A condition based on the specified lock.
-     * @param nbrOfBusySpinsBeforeEachYield Number of non-timed busy spins done
-     *        before timed spinning, and then number of timed busy spins done
-     *        after each timed yield. Must be >= 0.
-     * @param maxTimedSpinningWaitNS Max duration, in nanoseconds, for timed spinning
-     *        (busy or yielding) wait. Must be >= 0.
-     * @param elusiveInLockSignaling If true, signalXXXInLock methods actually
-     *        only signal if there is at least one thread holding the lock in an
-     *        awaitXXXWhileFalseInLock method, that possibly did already evaluate
-     *        the boolean condition from within the lock yet (and might be going
-     *        to wait or started to wait already).
-     * @param initialBlockingWaitChunkNS Max duration, in nanoseconds, for an isolated
-     *        or in-loop-and-initial blocking wait.
-     * @param blockingWaitChunkIncreaseRate Rate (>=0) at which used blocking wait chunk
-     *        increases (used chunk = initial chunk + rate * elapsed time).
-     */
-    public SmartLockCondilock(
-            final Lock lock,
-            final Condition condition,
-            long nbrOfBusySpinsBeforeEachYield,
-            long maxTimedSpinningWaitNS,
-            boolean elusiveInLockSignaling,
-            long initialBlockingWaitChunkNS,
-            double blockingWaitChunkIncreaseRate) {
-        this(
-                lock,
-                condition,
-                nbrOfBusySpinsBeforeEachYield, // nbrOfNonTimedConsecutiveBusySpins
-                0L, // nbrOfNonTimedYieldsAndConsecutiveBusySpins
-                Integer.MAX_VALUE, // bigYieldThresholdNS (all yields considered small)
-                nbrOfBusySpinsBeforeEachYield, // nbrOfBusySpinsAfterSmallYield
-                maxTimedSpinningWaitNS,
-                elusiveInLockSignaling,
-                initialBlockingWaitChunkNS,
-                blockingWaitChunkIncreaseRate);
-    }
-
-    /*
-     * 
-     */
-    
-    /**
-     * Creates a condilock based on a default lock.
-     */
-    public SmartLockCondilock(
-            long nbrOfNonTimedConsecutiveBusySpins,
-            long nbrOfNonTimedYieldsAndConsecutiveBusySpins,
+            long nbrOfInitialBusySpins,
             int bigYieldThresholdNS,
             long nbrOfBusySpinsAfterSmallYield,
-            long maxTimedSpinningWaitNS,
+            long maxSpinningWaitNS,
+            //
             boolean elusiveInLockSignaling,
             long initialBlockingWaitChunkNS,
             double blockingWaitChunkIncreaseRate) {
         this(
                 newDefaultLock(),
-                nbrOfNonTimedConsecutiveBusySpins,
-                nbrOfNonTimedYieldsAndConsecutiveBusySpins,
+                //
+                nbrOfInitialBusySpins,
                 bigYieldThresholdNS,
                 nbrOfBusySpinsAfterSmallYield,
-                maxTimedSpinningWaitNS,
+                maxSpinningWaitNS,
+                //
                 elusiveInLockSignaling,
                 initialBlockingWaitChunkNS,
                 blockingWaitChunkIncreaseRate);
@@ -220,22 +82,24 @@ public class SmartLockCondilock extends LockCondilock {
      */
     public SmartLockCondilock(
             final Lock lock,
-            long nbrOfNonTimedConsecutiveBusySpins,
-            long nbrOfNonTimedYieldsAndConsecutiveBusySpins,
+            //
+            long nbrOfInitialBusySpins,
             int bigYieldThresholdNS,
             long nbrOfBusySpinsAfterSmallYield,
-            long maxTimedSpinningWaitNS,
+            long maxSpinningWaitNS,
+            //
             boolean elusiveInLockSignaling,
             long initialBlockingWaitChunkNS,
             double blockingWaitChunkIncreaseRate) {
         this(
                 lock,
                 lock.newCondition(),
-                nbrOfNonTimedConsecutiveBusySpins,
-                nbrOfNonTimedYieldsAndConsecutiveBusySpins,
+                //
+                nbrOfInitialBusySpins,
                 bigYieldThresholdNS,
                 nbrOfBusySpinsAfterSmallYield,
-                maxTimedSpinningWaitNS,
+                maxSpinningWaitNS,
+                //
                 elusiveInLockSignaling,
                 initialBlockingWaitChunkNS,
                 blockingWaitChunkIncreaseRate);
@@ -244,44 +108,46 @@ public class SmartLockCondilock extends LockCondilock {
     /**
      * @param lock Lock to use for locking.
      * @param condition A condition based on the specified lock.
-     * @param nbrOfNonTimedConsecutiveBusySpins Number of non-timed busy spins. Must be >= 0.
-     * @param nbrOfNonTimedYieldsAndConsecutiveBusySpins Number of non-timed yielding spins,
-     *        each followed by the specified number of consecutive busy spins. Must be >= 0.
-     * @param bigYieldThresholdNS Duration of a timed yield, in nanoseconds, above which
-     *        the CPUs are considered busy, in which case no busy spinning is done before
+     * @param nbrOfInitialBusySpins Number of busy spins done to start spinning wait.
+     *        Must be >= 0.
+     * @param bigYieldThresholdNS Duration of a yield, in nanoseconds, from which
+     *        the CPU is considered busy, in which case no busy spinning is done before
      *        next yield, if any. Must be >= 0.
-     * @param nbrOfBusySpinsAfterSmallYield Number of timed busy spins done after a timed
+     *        If 0, all yields are considered big, and if Integer.MAX_VALUE,
+     *        all yields are considered small, which allows not to bother
+     *        timing yields duration.
+     * @param nbrOfBusySpinsAfterSmallYield Number of busy spins done after a
      *        yield that was considered small. Must be >= 0.
-     * @param maxTimedSpinningWaitNS Max duration, in nanoseconds, for timed spinning wait.
+     * @param maxSpinningWaitNS Max duration, in nanoseconds, for spinning wait.
      *        Must be >= 0.
      * @param elusiveInLockSignaling If true, signalXXXInLock methods actually
      *        only signal if there is at least one thread holding the lock in an
      *        awaitXXXWhileFalseInLock method, that possibly did already evaluate
      *        the boolean condition from within the lock yet (and might be going
-     *        to wait or started to wait already).
+     *        to wait or already started to wait).
      * @param initialBlockingWaitChunkNS Max duration, in nanoseconds, for an isolated
      *        or in-loop-and-initial blocking wait.
+     *        If Long.MAX_VALUE, normal timeouts are used, and timing methods might
+     *        be not used (less overhead) if these timeouts can be approximated as infinite.
      * @param blockingWaitChunkIncreaseRate Rate (>=0) at which used blocking wait chunk
      *        increases (used chunk = initial chunk + rate * elapsed time).
      */
     public SmartLockCondilock(
             final Lock lock,
             final Condition condition,
-            long nbrOfNonTimedConsecutiveBusySpins,
-            long nbrOfNonTimedYieldsAndConsecutiveBusySpins,
+            //
+            long nbrOfInitialBusySpins,
             int bigYieldThresholdNS,
             long nbrOfBusySpinsAfterSmallYield,
-            long maxTimedSpinningWaitNS,
+            long maxSpinningWaitNS,
+            //
             boolean elusiveInLockSignaling,
             long initialBlockingWaitChunkNS,
             double blockingWaitChunkIncreaseRate) {
         super(
                 lock,
                 condition);
-        if (nbrOfNonTimedConsecutiveBusySpins < 0) {
-            throw new IllegalArgumentException();
-        }
-        if (nbrOfNonTimedYieldsAndConsecutiveBusySpins < 0) {
+        if (nbrOfInitialBusySpins < 0) {
             throw new IllegalArgumentException();
         }
         if (bigYieldThresholdNS < 0) {
@@ -290,7 +156,7 @@ public class SmartLockCondilock extends LockCondilock {
         if (nbrOfBusySpinsAfterSmallYield < 0) {
             throw new IllegalArgumentException();
         }
-        if (maxTimedSpinningWaitNS < 0) {
+        if (maxSpinningWaitNS < 0) {
             throw new IllegalArgumentException();
         }
         if (initialBlockingWaitChunkNS < 0) {
@@ -299,11 +165,10 @@ public class SmartLockCondilock extends LockCondilock {
         if (!(blockingWaitChunkIncreaseRate >= 0.0)) {
             throw new IllegalArgumentException();
         }
-        this.nbrOfNonTimedConsecutiveBusySpins = nbrOfNonTimedConsecutiveBusySpins;
-        this.nbrOfNonTimedYieldsAndConsecutiveBusySpins = nbrOfNonTimedYieldsAndConsecutiveBusySpins;
+        this.nbrOfInitialBusySpins = nbrOfInitialBusySpins;
         this.bigYieldThresholdNS = bigYieldThresholdNS;
         this.nbrOfBusySpinsAfterSmallYield = nbrOfBusySpinsAfterSmallYield;
-        this.maxTimedSpinningWaitNS = maxTimedSpinningWaitNS;
+        this.maxSpinningWaitNS = maxSpinningWaitNS;
         this.elusiveInLockSignaling = elusiveInLockSignaling;
         this.initialBlockingWaitChunkNS = initialBlockingWaitChunkNS;
         // abs to take care of -0.0
@@ -343,36 +208,44 @@ public class SmartLockCondilock extends LockCondilock {
     //--------------------------------------------------------------------------
     
     @Override
-    protected long getNbrOfNonTimedConsecutiveBusySpins() {
-        return this.nbrOfNonTimedConsecutiveBusySpins;
+    protected long getNbrOfInitialBusySpins() {
+        return this.nbrOfInitialBusySpins;
     }
 
     @Override
-    protected long getNbrOfNonTimedYieldsAndConsecutiveBusySpins() {
-        return this.nbrOfNonTimedYieldsAndConsecutiveBusySpins;
-    }
-
-    @Override
-    protected long getNbrOfTimedBusySpinsBeforeNextTimedYield(long previousYieldDurationNS) {
-        if (previousYieldDurationNS > this.bigYieldThresholdNS) {
-            // First yield, or too busy CPU: letting CPU to other threads.
-            return 0;
-        } else {
-            // Short yield: busy spinning.
-            return this.nbrOfBusySpinsAfterSmallYield;
-        }
+    protected long getNbrOfBusySpinsAfterEachYield() {
+        return getNbrOfBusySpinsAfterEachYield(
+                this.bigYieldThresholdNS,
+                this.nbrOfBusySpinsAfterSmallYield);
     }
     
     @Override
-    protected long getMaxTimedSpinningWaitNS() {
-        return this.maxTimedSpinningWaitNS;
+    protected long getNbrOfBusySpinsBeforeNextYield(long previousYieldDurationNS) {
+        return getNbrOfBusySpinsBeforeNextYield(
+                previousYieldDurationNS,
+                this.bigYieldThresholdNS,
+                this.nbrOfBusySpinsAfterSmallYield);
     }
     
     @Override
-    protected long getMaxBlockingWaitChunkNS(long elapsedTimeoutTimeNS) {
+    protected long getMaxSpinningWaitNS() {
+        return this.maxSpinningWaitNS;
+    }
+    
+    /*
+     * 
+     */
+    
+    @Override
+    protected boolean useMaxBlockingWaitChunks() {
+        return (this.initialBlockingWaitChunkNS < INFINITE_TIMEOUT_THRESHOLD_NS);
+    }
+    
+    @Override
+    protected long getMaxBlockingWaitChunkNS(long elapsedTimeNS) {
         return NumbersUtils.plusBounded(
                 this.initialBlockingWaitChunkNS,
-                Math.round(elapsedTimeoutTimeNS * this.blockingWaitChunkIncreaseRate));
+                Math.round(elapsedTimeNS * this.blockingWaitChunkIncreaseRate));
     }
     
     /*
@@ -380,24 +253,22 @@ public class SmartLockCondilock extends LockCondilock {
      */
 
     @Override
-    protected void afterLockForAwaitOnBooleanCondition() {
+    protected void afterLockWaitingForBooleanCondition() {
         if (this.elusiveInLockSignaling) {
-            // In lock: no need to CAS.
             // Can't use lazySet here, for current thread
             // might then check boolean condition before
             // the set appears to signaling-or-not thread,
             // which might read zero and consider there is
             // no waiter-or-soon-waiting thread to signal.
-            this.nbrOfLockersToSignal.set(this.nbrOfLockersToSignal.get()+1);
+            this.nbrOfLockersToSignal.set(++this.nbrOfLockersToSignal_inLock);
         }
     }
     
     @Override
-    protected void beforeUnlockForAwaitOnBooleanCondition() {
+    protected void beforeUnlockWaitingForBooleanCondition() {
         if (this.elusiveInLockSignaling) {
-            // In lock: no need to CAS.
             // lazySet OK since unlocking will come just after.
-            this.nbrOfLockersToSignal.lazySet(this.nbrOfLockersToSignal.get()-1);
+            this.nbrOfLockersToSignal.lazySet(--this.nbrOfLockersToSignal_inLock);
         }
     }
 }

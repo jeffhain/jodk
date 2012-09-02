@@ -20,8 +20,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import net.jodk.lang.InterfaceBooleanCondition;
 
 public class CondilockSample {
+    
+    //--------------------------------------------------------------------------
+    // PUBLIC TREATMENTS
+    //--------------------------------------------------------------------------
 
     public static void main(String[] args) {
+        System.out.println("--- "+CondilockSample.class.getSimpleName()+"... ---");
+
         final InterfaceCondilock condilock = new MonitorCondilock();
         
         final AtomicBoolean dinnerIsReady = new AtomicBoolean();
@@ -49,5 +55,7 @@ public class CondilockSample {
         
         condilock.awaitWhileFalseInLockUninterruptibly(bc);
         System.out.println("dinner is ready = "+dinnerIsReady.get());
+        
+        System.out.println("--- ..."+CondilockSample.class.getSimpleName()+" ---");
     }
 }

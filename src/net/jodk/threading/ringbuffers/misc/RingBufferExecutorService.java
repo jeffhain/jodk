@@ -18,23 +18,18 @@ package net.jodk.threading.ringbuffers.misc;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.AbstractExecutorService;
-import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 
 import net.jodk.lang.NumbersUtils;
 import net.jodk.threading.InterfaceRejectedExecutionHandler;
-import net.jodk.threading.locks.InterfaceCondilock;
-import net.jodk.threading.ringbuffers.AbortingRingBufferRejectedEventHandler;
 import net.jodk.threading.ringbuffers.InterfaceRingBuffer;
 import net.jodk.threading.ringbuffers.InterfaceRingBufferRejectedEventHandler;
 import net.jodk.threading.ringbuffers.InterfaceRingBufferService;
 import net.jodk.threading.ringbuffers.InterfaceRingBufferSubscriber;
-import net.jodk.threading.ringbuffers.MulticastRingBufferService;
 import net.jodk.threading.ringbuffers.RingBuffersUtils;
-import net.jodk.threading.ringbuffers.UnicastRingBufferService;
 
 /**
- * An executor service based on a ring buffer.
+ * Executor service based on a ring buffer.
  * 
  * If the ring buffer is full, execute(Runnable) method
  * blocks uninterruptibly, which can cause deadlocks,
@@ -42,7 +37,7 @@ import net.jodk.threading.ringbuffers.UnicastRingBufferService;
  * own threads.
  */
 public class RingBufferExecutorService extends AbstractExecutorService {
-    
+
     //--------------------------------------------------------------------------
     // CONFIGURATION
     //--------------------------------------------------------------------------
@@ -54,15 +49,15 @@ public class RingBufferExecutorService extends AbstractExecutorService {
     //--------------------------------------------------------------------------
     
     private static class MySubscriber implements InterfaceRingBufferSubscriber {
-        private final Runnable[] eventByIndex;
+        final Runnable[] eventByIndex;
         private Runnable runnable;
         public MySubscriber(final Runnable[] eventByIndex) {
             this.eventByIndex = eventByIndex;
         }
         @Override
-        public void readEvent(long sequence, int eventIndex) {
-            this.runnable = this.eventByIndex[eventIndex];
-            this.eventByIndex[eventIndex] = null;
+        public void readEvent(long sequence, int index) {
+            this.runnable = this.eventByIndex[index];
+            this.eventByIndex[index] = null;
         }
         @Override
         public boolean processReadEvent() {
@@ -77,75 +72,6 @@ public class RingBufferExecutorService extends AbstractExecutorService {
         }
     }
     
-    /**
-     * Sub-classing for terminated hook.
-     */
-    private static class MyUnicastRingBufferService extends UnicastRingBufferService {
-        private RingBufferExecutorService parent;
-        public MyUnicastRingBufferService(
-                int bufferCapacity,
-                int pubSeqNbrOfAtomicCounters,
-                boolean singleSubscriber,
-                boolean readLazySets,
-                boolean writeLazySets,
-                InterfaceCondilock readWaitCondilock,
-                InterfaceCondilock writeWaitCondilock,
-                Executor executor) {
-            super(
-                    bufferCapacity,
-                    pubSeqNbrOfAtomicCounters,
-                    singleSubscriber,
-                    readLazySets,
-                    writeLazySets,
-                    readWaitCondilock,
-                    writeWaitCondilock,
-                    executor,
-                    new AbortingRingBufferRejectedEventHandler());
-        }
-        public void setParent(final RingBufferExecutorService parent) {
-            this.parent = parent;
-        }
-        @Override
-        protected void terminated() {
-            super.terminated();
-            this.parent.terminated();
-        }
-    }
-
-    /**
-     * Sub-classing for terminated hook.
-     */
-    private static class MyMulticastRingBufferService extends MulticastRingBufferService {
-        private RingBufferExecutorService parent;
-        public MyMulticastRingBufferService(
-                int bufferCapacity,
-                boolean singlePublisher,
-                boolean readLazySets,
-                boolean writeLazySets,
-                InterfaceCondilock readWaitCondilock,
-                InterfaceCondilock writeWaitCondilock,
-                Executor executor) {
-            super(
-                    bufferCapacity,
-                    singlePublisher,
-                    true, // singleSubscriber
-                    readLazySets,
-                    writeLazySets,
-                    readWaitCondilock,
-                    writeWaitCondilock,
-                    executor,
-                    new AbortingRingBufferRejectedEventHandler());
-        }
-        public void setParent(final RingBufferExecutorService parent) {
-            this.parent = parent;
-        }
-        @Override
-        protected void terminated() {
-            super.terminated();
-            this.parent.terminated();
-        }
-    }
-    
     //--------------------------------------------------------------------------
     // MEMBERS
     //--------------------------------------------------------------------------
@@ -155,7 +81,7 @@ public class RingBufferExecutorService extends AbstractExecutorService {
      */
     private static final boolean TRY_INTERRUPT_ON_SHUTDOWN = true;
     
-    private final InterfaceRingBufferService ringBufferService;
+    protected final InterfaceRingBufferService ringBufferService;
     
     private final Runnable[] eventByIndex;
     
@@ -169,64 +95,27 @@ public class RingBufferExecutorService extends AbstractExecutorService {
     //--------------------------------------------------------------------------
 
     /**
-     * Creates an executor service based on a unicast ring buffer service.
+     * Creates an executor service based on the specified ring buffer service.
+     * 
+     * Sets rejected event handler in the specified ring buffer service.
+     * Behavior is undefined if another rejected event handler is set afterward.
      */
     public RingBufferExecutorService(
-            int bufferCapacity,
-            int pubSeqNbrOfAtomicCounters,
-            boolean readLazySets,
-            boolean writeLazySets,
-            final InterfaceCondilock readWaitCondilock,
-            final InterfaceCondilock writeWaitCondilock,
-            final Executor executor,
-            //
+            final InterfaceRingBufferService ringBufferService,
             int nbrOfWorkers,
             final InterfaceRejectedExecutionHandler rejectedExecutionHandler) {
-        this(
-                new MyUnicastRingBufferService(
-                        bufferCapacity,
-                        pubSeqNbrOfAtomicCounters,
-                        (nbrOfWorkers == 1), // singleSubscriber
-                        readLazySets,
-                        writeLazySets,
-                        readWaitCondilock,
-                        writeWaitCondilock,
-                        executor),
-                        //
-                        nbrOfWorkers,
-                        rejectedExecutionHandler);
-    }
-
-    /**
-     * Creates an executor service based on a multicast ring buffer service,
-     * with only a single worker.
-     * 
-     * Typically has a better throughput than unicast-based executor,
-     * in case of many publishers (and single worker), due to multicast
-     * ring buffer's batch effect.
-     */
-    public RingBufferExecutorService(
-            int bufferCapacity,
-            boolean singlePublisher,
-            boolean readLazySets,
-            boolean writeLazySets,
-            final InterfaceCondilock readWaitCondilock,
-            final InterfaceCondilock writeWaitCondilock,
-            final Executor executor,
-            //
-            final InterfaceRejectedExecutionHandler rejectedExecutionHandler) {
-        this(
-                new MyMulticastRingBufferService(
-                        bufferCapacity,
-                        singlePublisher,
-                        readLazySets,
-                        writeLazySets,
-                        readWaitCondilock,
-                        writeWaitCondilock,
-                        executor),
-                        //
-                        1, // nbrOfWorkers
-                        rejectedExecutionHandler);
+        if (nbrOfWorkers < 0) {
+            throw new IllegalArgumentException("number of workers ["+nbrOfWorkers+"] must be >= 0");
+        }
+        ringBufferService.setRejectedEventHandler(newRejectedEventHandler());
+        this.setRejectedExecutionHandler(rejectedExecutionHandler);
+        this.ringBufferService = ringBufferService;
+        final int capacity = ringBufferService.getBufferCapacity();
+        final Runnable[] eventByIndex = new Runnable[capacity];
+        this.eventByIndex = eventByIndex;
+        for (int i=0;i<nbrOfWorkers;i++) {
+            ringBufferService.newWorker(new MySubscriber(eventByIndex));
+        }
     }
 
     /**
@@ -245,16 +134,81 @@ public class RingBufferExecutorService extends AbstractExecutorService {
         }
         this.rejectedExecutionHandler = rejectedExecutionHandler;
     }
-    
+
     /**
-     * Blocks uninterruptibly, until room or shut down.
+     * @param runnable Runnable to run.
+     * @return True if execution has been planned (but rejection
+     *         is still possible), false otherwise.
+     * @throws NullPointerException if the specified Runnable is null.
+     */
+    public boolean tryExecute(Runnable runnable) {
+        if (runnable == null) {
+            throw new NullPointerException();
+        }
+        final InterfaceRingBufferService ringBuffer = this.ringBufferService;
+        final long sequence = ringBuffer.tryClaimSequence();
+        if (sequence < 0) {
+            // Full or shut down.
+            return false;
+        } else {
+            try {
+                final int index = ringBuffer.sequenceToIndex(sequence);
+                this.eventByIndex[index] = runnable;
+            } finally {
+                ringBuffer.publish(sequence);
+            }
+            return true;
+        }
+    }
+
+    /**
+     * Blocks until timeout, or room, or shut down.
+     * 
+     * @param runnable Runnable to run.
+     * @param timeoutNS Timeout, in nanoseconds, for this sequence claim.
+     * @return True if execution has been planned (but rejection
+     *         is still possible), false otherwise.
+     * @throws NullPointerException if the specified Runnable is null.
+     * @throws InterruptedException if current thread is interrupted,
+     *         possibly unless this treatment doesn't actually wait.
+     */
+    public boolean tryExecute(Runnable runnable, long timeoutNS) throws InterruptedException {
+        if (runnable == null) {
+            throw new NullPointerException();
+        }
+        final InterfaceRingBufferService ringBuffer = this.ringBufferService;
+        final long sequence = ringBuffer.tryClaimSequence(timeoutNS);
+        if (sequence < 0) {
+            // Full or shut down.
+            return false;
+        } else {
+            try {
+                final int index = ringBuffer.sequenceToIndex(sequence);
+                this.eventByIndex[index] = runnable;
+            } finally {
+                ringBuffer.publish(sequence);
+            }
+            return true;
+        }
+    }
+
+    /**
+     * Blocks uninterruptibly, until room or shut down
+     * (but might block even on shut down, depending
+     * on ring buffer implementation, until some
+     * workers make some progress).
+     * 
+     * @param runnable Runnable to run.
+     * @throws NullPointerException if the specified Runnable is null.
      */
     @Override
     public void execute(Runnable runnable) {
+        if (runnable == null) {
+            throw new NullPointerException();
+        }
         final InterfaceRingBufferService ringBuffer = this.ringBufferService;
         final long sequence = ringBuffer.claimSequence();
         if (sequence < 0) {
-            // Shut down.
             this.rejectedExecutionHandler.onRejectedExecution(this, runnable);
         } else {
             try {
@@ -265,12 +219,19 @@ public class RingBufferExecutorService extends AbstractExecutorService {
             }
         }
     }
+    
+    /*
+     * 
+     */
 
     @Override
     public void shutdown() {
         this.ringBufferService.shutdown();
     }
 
+    /**
+     * Always returns a mutable list.
+     */
     @Override
     public List<Runnable> shutdownNow() {
         final long[] abortedSequencesRanges = this.ringBufferService.shutdownNow(TRY_INTERRUPT_ON_SHUTDOWN);
@@ -280,7 +241,7 @@ public class RingBufferExecutorService extends AbstractExecutorService {
             final long min = abortedSequencesRanges[0];
             final long max = abortedSequencesRanges[1];
             for (long seq=min;seq<=max;seq++) {
-                final int index = this.ringBufferService.sequenceToIndex(seq); 
+                final int index = this.ringBufferService.sequenceToIndex(seq);
                 final Runnable runnable = this.eventByIndex[index];
                 this.eventByIndex[index] = null;
                 if(ASSERTIONS)assert(runnable != null);
@@ -308,55 +269,8 @@ public class RingBufferExecutorService extends AbstractExecutorService {
     }
 
     //--------------------------------------------------------------------------
-    // PROTECTED METHODS
-    //--------------------------------------------------------------------------
-    
-    /**
-     * Called outside main lock (unlike ThreadPoolExecutor.terminated()).
-     * 
-     * Can be called by shutdown thread, or by a worker thread.
-     * 
-     * Method invoked just before the ring buffer state is set to terminated
-     * (as done in ThreadPoolExecutor).
-     */
-    protected void terminated() {
-    }
-    
-    //--------------------------------------------------------------------------
     // PRIVATE METHODS
     //--------------------------------------------------------------------------
-    
-    /**
-     * Internal constructor.
-     * 
-     * Sets parent and rejected event handler into the specified ring buffer service.
-     * 
-     * @param ringBufferService Ring buffer service.
-     * @param nbrOfWorkers Number of workers to create.
-     * @param rejectedExecutionHandler Must not be null.
-     */
-    private RingBufferExecutorService(
-            final InterfaceRingBufferService ringBufferService,
-            //
-            int nbrOfWorkers,
-            final InterfaceRejectedExecutionHandler rejectedExecutionHandler) {
-        if (nbrOfWorkers < 0) {
-            throw new IllegalArgumentException("number of workers ["+nbrOfWorkers+"] must be >= 0");
-        }
-        if (ringBufferService instanceof MyUnicastRingBufferService) {
-            ((MyUnicastRingBufferService)ringBufferService).setParent(this);
-        } else {
-            ((MyMulticastRingBufferService)ringBufferService).setParent(this);
-        }
-        ringBufferService.setRejectedEventHandler(newRejectedEventHandler());
-        this.setRejectedExecutionHandler(rejectedExecutionHandler);
-        this.ringBufferService = ringBufferService;
-        final Runnable[] eventByIndex = new Runnable[ringBufferService.getBufferCapacity()];
-        this.eventByIndex = eventByIndex;
-        for (int i=0;i<nbrOfWorkers;i++) {
-            ringBufferService.newWorker(new MySubscriber(eventByIndex));
-        }
-    }
 
     /**
      * For rejections on publish.

@@ -18,15 +18,20 @@ package net.jodk.threading;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Initially non-null non-volatile reference to an instance,
- * which is read each time the calling thread sees the non-volatile
- * reference as non-null.
+ * Non-volatile reference to an instance obtained
+ * through a volatile reference, which is read
+ * each time the calling thread sees the non-volatile
+ * reference as null.
  * 
  * Useful if the volatile reference is only set once
- * to null value, for it allows to use a non-volatile
- * null reference in the long run.
+ * to a non-null value, for it allows to use a
+ * non-volatile non-null reference in the long run.
+ * 
+ * Beware of data races, since this allows to obtain
+ * a reference to an object before eventually needed
+ * memory synchronization.
  */
-public class NullOrAtomicReference<T> {
+public class NonNullElseAtomicReference<T> {
     
     //--------------------------------------------------------------------------
     // MEMBERS
@@ -35,44 +40,37 @@ public class NullOrAtomicReference<T> {
     private final AtomicReference<T> vRef;
     
     /**
-     * Initialized to non-null.
+     * Initialized to null.
      */
-    private Object ref = this;
+    private T ref = null;
     
     //--------------------------------------------------------------------------
     // PUBLIC METHODS
     //--------------------------------------------------------------------------
     
     /**
-     * The initially non-null reference can be set in the specified
-     * atomic reference, after construction, but it must be done
-     * before first call to get() method.
+     * The non-null reference is not retrieved in this
+     * constructor, but in call(s) to get() method.
      * 
      * @param vRef Atomic reference providing the non-null reference
-     *        that is returned by get() method, until it ends up returning
-     *        a null reference and all threads see non-volatile reference
-     *        as null.
+     *        that is returned by get() method.
      */
-    public NullOrAtomicReference(final AtomicReference<T> vRef) {
+    public NonNullElseAtomicReference(final AtomicReference<T> vRef) {
         this.vRef = vRef;
     }
     
     /**
-     * @return Null obtained from non-volatile reference,
-     *         else reference obtained from volatile reference (possibly non-null).
+     * @return Non-null reference obtained from non-volatile reference,
+     *         else reference obtained from volatile reference (possibly null).
      */
     public T get() {
-        final Object ref = this.ref;
+        T ref = this.ref;
         if (ref == null) {
-            return null;
-        } else {
-            final T typedRef = this.vRef.get();
-            if (typedRef == null) {
-                this.ref = null;
-                return null;
-            } else {
-                return typedRef;
+            ref = this.vRef.get();
+            if (ref != null) {
+                this.ref = ref;
             }
         }
+        return ref;
     }
 }

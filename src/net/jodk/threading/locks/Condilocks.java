@@ -36,15 +36,15 @@ public class Condilocks {
      * - 100 microseconds of yielding spins corresponds to a switch
      *   to non-blocking wait above a rate of 10000 events per second,
      *   which should not be far from the tipping point where
-     *   blocking wait starts to slow downs events rate noticeably.
+     *   blocking wait starts to slow down events rate noticeably.
      * 
      * Main downsides in case of lazy sets:
      * - undue waits: a wait might not be awaken as one could
      *   expect (re-wait after wake-up, new value not being visible),
      *   and boolean condition only be checked after small waits.
-     * - waiting threads are never totally idle, only doing
-     *   small waits (useful in case of undue wait); but the
-     *   delay between these waits increases geometrically.
+     * - waiting threads are not totally idle, doing bounded waits of
+     *   proportional to the durations elapsed since initial wait start
+     *   (useful in case of undue wait).
      * 
      * @param lazySets True if this condilock must handle waits for lazily set
      *        volatile variables, i.e. if its blocking waits must wake-up from
@@ -52,9 +52,11 @@ public class Condilocks {
      */
     public static InterfaceCondilock newSmartCondilock(boolean lazySets) {
         return new SmartMonitorCondilock(
-                new Object(), // mutex
-                0L, // nbrOfBusySpinsBeforeEachYield
-                100L*1000L, // maxTimedSpinningWaitNS
+                0L, // nbrOfInitialBusySpins
+                Integer.MAX_VALUE, // bigYieldThresholdNS (all yields considered small)
+                0L, // nbrOfBusySpinsAfterSmallYield
+                100L*1000L, // maxSpinningWaitNS
+                //
                 true, // elusiveInLockSignaling
                 (lazySets ? 1L : Long.MAX_VALUE), // initialBlockingWaitChunkNS
                 (lazySets ? 0.1 : 0.0)); // blockingWaitChunkIncreaseRate

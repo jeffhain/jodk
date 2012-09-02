@@ -27,7 +27,7 @@ import net.jodk.lang.LangUtils;
  * to be copied-pasted-modified for each type of tab, which would make them
  * a bit faster, but would be ugly).
  * 
- * Default implementations work on byte arrays, and must be overriden to work
+ * Default implementation works on byte arrays, and must be overriden to work
  * on other types of tabs, such as ByteBuffers (This is more efficient than
  * using an interface and generic types. Also, using specific buffer parameters
  * instead of "Object tab", which needs to be casted, doesn't seem to speed
@@ -58,8 +58,6 @@ import net.jodk.lang.LangUtils;
  * only after some data has been put (for performance reasons), for it
  * is checked by underlying byte array or ByteBuffer in practice, and
  * we don't want to enforce redundant checks.
- * 
- * Package-private.
  */
 class BaseBTHelper {
 
@@ -83,6 +81,7 @@ class BaseBTHelper {
      *         and is not read-only, false otherwise.
      */
     public boolean hasArray(Object tab) {
+        // byte array never read-only by itself
         return true;
     }
 
@@ -336,7 +335,7 @@ class BaseBTHelper {
         } catch (ArrayIndexOutOfBoundsException e) {
             // Will throw appropriate exception.
             LangUtils.checkBounds(buffer.length, index, 1);
-            // Not throwing AssertionError here, for less byte code.
+            throw new AssertionError();
         }
     }
 
@@ -351,6 +350,7 @@ class BaseBTHelper {
             buffer[index+1] = (byte)bits;
         } catch (ArrayIndexOutOfBoundsException e) {
             LangUtils.checkBounds(buffer.length, index, 2);
+            throw new AssertionError();
         }
     }
 
@@ -365,6 +365,7 @@ class BaseBTHelper {
             buffer[index+1] = (byte)(bits>>8);
         } catch (ArrayIndexOutOfBoundsException e) {
             LangUtils.checkBounds(buffer.length, index, 2);
+            throw new AssertionError();
         }
     }
 
@@ -380,6 +381,7 @@ class BaseBTHelper {
             buffer[index+2] = (byte)bits;
         } catch (ArrayIndexOutOfBoundsException e) {
             LangUtils.checkBounds(buffer.length, index, 3);
+            throw new AssertionError();
         }
     }
 
@@ -395,6 +397,7 @@ class BaseBTHelper {
             buffer[index+2] = (byte)(bits>>16);
         } catch (ArrayIndexOutOfBoundsException e) {
             LangUtils.checkBounds(buffer.length, index, 3);
+            throw new AssertionError();
         }
     }
 
@@ -411,6 +414,7 @@ class BaseBTHelper {
             buffer[index+3] = (byte)bits;
         } catch (ArrayIndexOutOfBoundsException e) {
             LangUtils.checkBounds(buffer.length, index, 4);
+            throw new AssertionError();
         }
     }
 
@@ -427,6 +431,7 @@ class BaseBTHelper {
             buffer[index+3] = (byte)(bits>>24);
         } catch (ArrayIndexOutOfBoundsException e) {
             LangUtils.checkBounds(buffer.length, index, 4);
+            throw new AssertionError();
         }
     }
 
@@ -446,6 +451,7 @@ class BaseBTHelper {
             buffer[index+4] = (byte)lo;
         } catch (ArrayIndexOutOfBoundsException e) {
             LangUtils.checkBounds(buffer.length, index, 5);
+            throw new AssertionError();
         }
     }
 
@@ -465,6 +471,7 @@ class BaseBTHelper {
             buffer[index+4] = (byte)hi;
         } catch (ArrayIndexOutOfBoundsException e) {
             LangUtils.checkBounds(buffer.length, index, 5);
+            throw new AssertionError();
         }
     }
 
@@ -485,6 +492,7 @@ class BaseBTHelper {
             buffer[index+5] = (byte)lo;
         } catch (ArrayIndexOutOfBoundsException e) {
             LangUtils.checkBounds(buffer.length, index, 6);
+            throw new AssertionError();
         }
     }
 
@@ -505,6 +513,7 @@ class BaseBTHelper {
             buffer[index+5] = (byte)(hi>>8);
         } catch (ArrayIndexOutOfBoundsException e) {
             LangUtils.checkBounds(buffer.length, index, 6);
+            throw new AssertionError();
         }
     }
 
@@ -526,6 +535,7 @@ class BaseBTHelper {
             buffer[index+6] = (byte)lo;
         } catch (ArrayIndexOutOfBoundsException e) {
             LangUtils.checkBounds(buffer.length, index, 7);
+            throw new AssertionError();
         }
     }
 
@@ -547,6 +557,7 @@ class BaseBTHelper {
             buffer[index+6] = (byte)(hi>>16);
         } catch (ArrayIndexOutOfBoundsException e) {
             LangUtils.checkBounds(buffer.length, index, 7);
+            throw new AssertionError();
         }
     }
 
@@ -569,6 +580,7 @@ class BaseBTHelper {
             buffer[index+7] = (byte)lo;
         } catch (ArrayIndexOutOfBoundsException e) {
             LangUtils.checkBounds(buffer.length, index, 8);
+            throw new AssertionError();
         }
     }
 
@@ -591,6 +603,7 @@ class BaseBTHelper {
             buffer[index+7] = (byte)(hi>>24);
         } catch (ArrayIndexOutOfBoundsException e) {
             LangUtils.checkBounds(buffer.length, index, 8);
+            throw new AssertionError();
         }
     }
 
@@ -614,6 +627,7 @@ class BaseBTHelper {
             buffer[index+8] = lsbits;
         } catch (ArrayIndexOutOfBoundsException e) {
             LangUtils.checkBounds(buffer.length, index, 9);
+            throw new AssertionError();
         }
     }
 
@@ -637,6 +651,7 @@ class BaseBTHelper {
             buffer[index+8] = (byte)(hi>>24);
         } catch (ArrayIndexOutOfBoundsException e) {
             LangUtils.checkBounds(buffer.length, index, 9);
+            throw new AssertionError();
         }
     }
 

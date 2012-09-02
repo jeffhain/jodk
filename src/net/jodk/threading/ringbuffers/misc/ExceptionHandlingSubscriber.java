@@ -46,10 +46,10 @@ public class ExceptionHandlingSubscriber implements InterfaceRingBufferSubscribe
     }
     
     @Override
-    public void readEvent(long sequence, int eventIndex) {
+    public void readEvent(long sequence, int index) {
         this.lastSequence = sequence;
         try {
-            this.subscriber.readEvent(sequence, eventIndex);
+            this.subscriber.readEvent(sequence, index);
         } catch (Exception e) {
             this.exceptionHandler.handle(e, sequence);
         }

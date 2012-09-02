@@ -47,6 +47,7 @@ import net.jodk.lang.NumbersUtils;
 import net.jodk.lang.RethrowException;
 import net.jodk.lang.Unchecked;
 import net.jodk.test.ProcessorsUser;
+import net.jodk.test.TestUtils;
 import net.jodk.threading.HeisenLogger;
 import net.jodk.threading.HeisenLogger.RefLocal;
 import net.jodk.threading.locks.Condilocks;
@@ -82,7 +83,7 @@ public class RingBuffersTest extends TestCase {
 
     private static final boolean QUICK_TESTS = false;
     
-    private static final long TOLERANCE_MS = 500L;
+    private static final long TOLERANCE_MS = 100L;
     
     /**
      * For each test, timeout, in seconds, after which
@@ -2106,7 +2107,7 @@ public class RingBuffersTest extends TestCase {
             @Override
             public void run() {
                 // Should be enough for worker to block reading 0.
-                Unchecked.sleepMS(TOLERANCE_MS);
+                TestUtils.sleepMSInChunks(TOLERANCE_MS);
                 // Not updated yet, since bounded batch is not done.
                 assertEquals(-1, worker.getMaxPassedSequence());
                 // Unblocking worker one event.
@@ -2115,7 +2116,7 @@ public class RingBuffersTest extends TestCase {
                     blockReading.notifyAll();
                 }
                 // Should be enough for worker to block reading 1.
-                Unchecked.sleepMS(TOLERANCE_MS);
+                TestUtils.sleepMSInChunks(TOLERANCE_MS);
                 if (multicast) {
                     // Not updated yet, since bounded batch is not done.
                     assertEquals(-1, worker.getMaxPassedSequence());
@@ -2129,7 +2130,7 @@ public class RingBuffersTest extends TestCase {
                     blockReading.notifyAll();
                 }
                 // Should be enough for worker to block waiting for more.
-                Unchecked.sleepMS(TOLERANCE_MS);
+                TestUtils.sleepMSInChunks(TOLERANCE_MS);
                 if (multicast) {
                     // Updated (worker now idle).
                     assertEquals(1, worker.getMaxPassedSequence());
@@ -2641,7 +2642,7 @@ public class RingBuffersTest extends TestCase {
                 public void run() {
                     // Should be enough to ensure that
                     // forever-blocking claims start to wait.
-                    Unchecked.sleepMS(TOLERANCE_MS);
+                    TestUtils.sleepMSInChunks(TOLERANCE_MS);
                     // Need to release the worker,
                     // because forever-blocking claim
                     // might wait for previous sequences
@@ -2896,7 +2897,7 @@ public class RingBuffersTest extends TestCase {
                 @Override
                 public void run() {
                     // Should be enough for claim to start to block.
-                    Unchecked.sleepMS(TOLERANCE_MS);
+                    TestUtils.sleepMSInChunks(TOLERANCE_MS);
                     assertFalse(didClaim.get());
                     // Will read current round.
                     blockReading.set(nextToBlockOn);
@@ -2905,7 +2906,7 @@ public class RingBuffersTest extends TestCase {
                     }
                     // Should be enough for worker
                     // to read the round.
-                    Unchecked.sleepMS(TOLERANCE_MS);
+                    TestUtils.sleepMSInChunks(TOLERANCE_MS);
                     runnableDone.set(true);
                     synchronized (runnableDone) {
                         runnableDone.notifyAll();
@@ -2971,7 +2972,7 @@ public class RingBuffersTest extends TestCase {
         } else {
             nonServiceThread.get().interrupt();
             // Should be enough for interruption to have effect.
-            Unchecked.sleepMS(TOLERANCE_MS);
+            TestUtils.sleepMSInChunks(TOLERANCE_MS);
         }
 
         /*
@@ -3052,7 +3053,7 @@ public class RingBuffersTest extends TestCase {
         ringBuffer.publish(lastClaimed);
 
         // Should be enough for worker to start blocking.
-        Unchecked.sleepMS(TOLERANCE_MS);
+        TestUtils.sleepMSInChunks(TOLERANCE_MS);
 
         /*
          * interrupting
@@ -3066,7 +3067,7 @@ public class RingBuffersTest extends TestCase {
         }
         
         // Should be enough for interruption signal to have effect.
-        Unchecked.sleepMS(TOLERANCE_MS);
+        TestUtils.sleepMSInChunks(TOLERANCE_MS);
         
         assertTrue(workerInterrupted.get());
         // Resetting flag.
@@ -3080,7 +3081,7 @@ public class RingBuffersTest extends TestCase {
         ringBuffer.publish(lastClaimed);
 
         // Should be enough for worker to start blocking.
-        Unchecked.sleepMS(TOLERANCE_MS);
+        TestUtils.sleepMSInChunks(TOLERANCE_MS);
 
         /*
          * shutdownNow, with interruption or not.
@@ -3096,13 +3097,13 @@ public class RingBuffersTest extends TestCase {
                 public void run() {
                     // Should be enough for shutdownNow to block
                     // waiting for subscriber to complete.
-                    Unchecked.sleepMS(TOLERANCE_MS);
+                    TestUtils.sleepMSInChunks(TOLERANCE_MS);
                     // shutdownNow didn't interrupt the worker.
                     assertFalse(workerInterrupted.get());
                     // Unblocking worker.
                     ((MulticastRingBufferService)ringBuffer).interruptWorkers();
                     // Should be enough for interruption to have effect.
-                    Unchecked.sleepMS(TOLERANCE_MS);
+                    TestUtils.sleepMSInChunks(TOLERANCE_MS);
                     assertTrue(workerInterrupted.get());
                     workerInterrupted.set(false);
                 }
@@ -3114,7 +3115,7 @@ public class RingBuffersTest extends TestCase {
         } else {
             ringBuffer.shutdownNow(interruptIfPossible);
             // Should be enough for interruption to have effect.
-            Unchecked.sleepMS(TOLERANCE_MS);
+            TestUtils.sleepMSInChunks(TOLERANCE_MS);
             assertEquals(interruptIfPossible, workerInterrupted.get());
             workerInterrupted.set(false);
         }
@@ -3447,11 +3448,13 @@ public class RingBuffersTest extends TestCase {
         // If too large, very few chances for blocking waits,
         // which does not allow to test well that all needed
         // signals are done.
-        final long maxTimedSpinningWaitNS = 10L * 1000L;
+        final long maxSpinningWaitNS = 10L * 1000L;
         return new SmartMonitorCondilock(
-                new Object(), // mutex
-                0L, // nbrOfBusySpinsBeforeEachYield
-                maxTimedSpinningWaitNS,
+                0L, // nbrOfInitialBusySpins
+                Integer.MAX_VALUE, // bigYieldThresholdNS (all yields considered small)
+                0L, // nbrOfBusySpinsAfterSmallYield
+                maxSpinningWaitNS,
+                //
                 true, // elusiveInLockSignaling
                 (lazySets ? 1L : Long.MAX_VALUE), // initialBlockingWaitChunkNS
                 (lazySets ? 0.1 : 0.0)); // blockingWaitChunkIncreaseRate

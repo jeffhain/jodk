@@ -8,7 +8,7 @@ alternatives to those of JDK.
 
    Main content:
 - FastMath (older versions available at http://sourceforge.net/projects/jafama).
-- ThinTime, which provides nanosecond-precise time.
+- ThinTime, which provides nanosecond-precise (but not -accurate) time.
 - DataBuffer, a bitwise version of ByteBuffer, and equivalent treatments for use
   on byte arrays or ByteBuffer instances.
 - LongCounter, a non-monotonic sort of AtomicLong which might scale better for
@@ -22,7 +22,15 @@ alternatives to those of JDK.
 - Multicast and unicast ring buffers, which are a cross of LMAX ring buffers
   (http://code.google.com/p/disruptor) and JDK's ExecutorService, and share
   common interfaces.
-- An ExecutorService implementation based on a ring buffer.
+- ExecutorService implementations based on ring buffer services.
+
+--------------------------------------------------------------------------------
+-- DEPENDENCIES
+--------------------------------------------------------------------------------
+
+- src and samples: JDK 6
+
+- test: JDK 7 (for ForkJoinPool) and JUnit (1.0 works)
 
 --------------------------------------------------------------------------------
 -- PROPERTIES
@@ -37,6 +45,76 @@ alternatives to those of JDK.
 --------------------------------------------------------------------------------
 -- VERSIONS
 --------------------------------------------------------------------------------
+
+- V1.1:
+  - Reduced the visibility of many fields, methods and inner classes
+    (mainly from protected to package-private).
+  - Condilocks implementations rework:
+    - Removed many constructors, for simplicity, and to reduce side effects
+      in case of constructors changes.
+    - Removed non-timed spins, for simplicity, and because their duration is
+      not taken into account for some timeouts computations, which could yield
+      surprising results for the user.
+    - Added AbstractCondilock.getNbrOfInitialBusySpins(), to configure initial
+      number of busy spins, aside from the number of busy spins after a yield.
+    - Added AbstractCondilock.getNbrOfBusySpinsAfterEachYield(), to configure
+      a fixed number of busy spins after each yield, which allows not to force
+      yields timing in case user doesn't use a dynamically changing number of
+      busy spins.
+    - Added AbstractCondilock.useMaxBlockingWaitChunks(), to allow not
+      to use timing methods in blocking condilocks, when waiting for a
+      boolean condition to be true and timeout can be approximated as infinite.
+    - Made remaining timeout computation more accurate for spinning wait
+      (no longer considering that max spinning wait time exactly elapsed).
+    - Multiple treatments now don't use timing if they can avoid to,
+      which reduces the overhead in some cases where timeouts/deadlines are
+      approximated as infinite, and blocking waits are not cut in chunks.
+    - In LockCondilock, renamed "afterLockForAwaitOnBooleanCondition()"
+      into "afterLockWaitingForBooleanCondition()",
+      and "beforeUnlockForAwaitOnBooleanCondition()"
+      into "beforeUnlockWaitingForBooleanCondition()",
+      for homogeneity with MonitorCondilock.
+    - In smart condilocks, added a non-volatile long field to avoid
+      two volatile reads per locking wait.
+    - Made many condilocks internal methods static.
+  - Ring buffer based executor services upgrade:
+    - RingBufferExecutorService now doesn't depend on any unicast and multicast
+      implementation, just on ring buffer services interface.
+    - Added URBExecutorService, which extends RingBufferExecutorService
+      and uses a UnicastRingBufferService.
+    - Added MRBExecutorService, which extends RingBufferExecutorService
+      and uses a MulticastRingBufferService (with single subscriber).
+    - Added tryExecute(Runnable) and tryExecute(Runnable,long) methods.
+    - Added interruptWorkers() method, since our backing ring buffer
+      services provide it.
+    - execute(Runnable) now throws NullPointerException if the specified
+      Runnable is null, as done in ThreadPoolExecutor, and to conform already
+      existing assertions supposing that executed runnables are never null.
+  - Renamed NullOrAtomicReference into NullElseAtomicReference,
+    and NonNullOrAtomicReference into NonNullElseAtomicReference.
+  - Added HeisenLogger.getInitialDateNS(), to create homogeneous timestamps.
+  - In LongCounter, added a final field to avoid computation
+    of bits shift in getNbrOfIncrementations() method.
+  - In BaseBTHelper, for put methods, throwing AssertionError
+    if LangUtils.checkBounds(...) doesn't throw in catch,
+    for homogeneity with get methods.
+  - Typos.
+  - Corrected AbstractRingBuffer Javadoc: if multicast, worker's max
+    passed sequence is set with lazySet only if readLazySets is true.
+  - In RingBufferExecutorServicePerf, indicated that when using
+    ForkJoinPool called from itself, done publisher threads will
+    contribute as workers, which biases the bench.
+  - Some DataBuffer tests were failing on some architectures (Bug ID: 4660849).
+    To make up for that, we don't test cases where float/double is a NaN.
+  - Small tests modifications, including rethrows instead
+    of e.printStackTrace() in case of trouble, GC-proof sleeps,
+    and smaller default ring buffers benches (no local port,
+    no 100-batch publishing).
+  - Corrected bench for FastMath.atan2(...), which was not using the
+    expected number of rounds.
+  - Added benches for condilocks, some more FastMath methods,
+    and tests for ring buffer based executor services,
+    NonNullElseAtomicReference and NullElseAtomicReference.
 
 - V1.0:
   - Code in src and samples depends on JDK6.

@@ -22,7 +22,7 @@ import net.jodk.threading.locks.Condilocks;
 /**
  * Provides static methods to create ring buffers.
  * 
- * See ring buffers constructors for arguments descriptions.
+ * See ring buffers constructors for arguments description.
  */
 public class RingBuffers {
 

@@ -69,10 +69,10 @@ public class SleepingCondilock extends AbstractCondilock {
             final InterfaceBooleanCondition booleanCondition,
             long timeoutNS) throws InterruptedException {
         if (!booleanCondition.isTrue()) {
-            if ((timeoutNS = spinningWaitNanosWhileFalse_notLocked(booleanCondition, timeoutNS)) <= 0) {
+            if ((timeoutNS = spinningWaitNanosWhileFalse(this, booleanCondition, timeoutNS)) <= 0) {
                 return (timeoutNS < 0);
             }
-            return this.sleepingWaitNanosWhileFalse(booleanCondition, timeoutNS);
+            return sleepingWaitNanosWhileFalse(this, booleanCondition, timeoutNS);
         }
         return true;
     }
@@ -83,10 +83,10 @@ public class SleepingCondilock extends AbstractCondilock {
             long endTimeoutTimeNS) throws InterruptedException {
         if (!booleanCondition.isTrue()) {
             long timeoutNS;
-            if ((timeoutNS = spinningWaitUntilNanosTimeoutTimeWhileFalse_notLocked(booleanCondition, endTimeoutTimeNS)) <= 0) {
+            if ((timeoutNS = spinningWaitUntilNanosWhileFalse_TT(this, booleanCondition, endTimeoutTimeNS)) <= 0) {
                 return (timeoutNS < 0);
             }
-            return this.sleepingWaitUntilNanosTimeoutTimeWhileFalse(booleanCondition, endTimeoutTimeNS);
+            return sleepingWaitUntilNanosWhileFalse_TT(this, booleanCondition, endTimeoutTimeNS);
         }
         return true;
     }
@@ -97,10 +97,10 @@ public class SleepingCondilock extends AbstractCondilock {
             long deadlineNS) throws InterruptedException {
         if (!booleanCondition.isTrue()) {
             long timeoutNS;
-            if ((timeoutNS = spinningWaitUntilNanosWhileFalse_notLocked(booleanCondition, deadlineNS)) <= 0) {
+            if ((timeoutNS = spinningWaitUntilNanosWhileFalse_DT(this, booleanCondition, deadlineNS)) <= 0) {
                 return (timeoutNS < 0);
             }
-            return this.sleepingWaitUntilNanosWhileFalse(booleanCondition, deadlineNS);
+            return sleepingWaitUntilNanosWhileFalse_DT(this, booleanCondition, deadlineNS);
         }
         return true;
     }

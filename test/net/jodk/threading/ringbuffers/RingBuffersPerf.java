@@ -52,7 +52,7 @@ public class RingBuffersPerf {
     
     private static final boolean QUICK_BENCH = false;
     
-    private static final boolean BENCH_LOCAL_PUBLISH_PORT = true;
+    private static final boolean BENCH_LOCAL_PUBLISH_PORT = false;
     
     private static final MyClaimType ONLY_BENCH_CLAIM_TYPE = null;
     
@@ -95,8 +95,7 @@ public class RingBuffersPerf {
         tryClaimSequence(1),
         tryClaimSequence_long(1),
         claimSequence(1),
-        claimSequences_IntWrapper_10(10),
-        claimSequences_IntWrapper_100(100);
+        claimSequences_IntWrapper_10(10);
         private final int desiredNbrOfSequences;
         private MyClaimType(int desiredNbrOfSequences) {
             this.desiredNbrOfSequences = desiredNbrOfSequences;
@@ -178,8 +177,7 @@ public class RingBuffersPerf {
                         if(ASSERTIONS)assert(sequence >= 0);
                         publisher.publish(sequence);
                     }
-                } else if ((this.claimType == MyClaimType.claimSequences_IntWrapper_10)
-                        || (this.claimType == MyClaimType.claimSequences_IntWrapper_100)) {
+                } else if (this.claimType == MyClaimType.claimSequences_IntWrapper_10) {
                     final int maxDesiredNbrOfSequences = this.claimType.desiredNbrOfSequences;
                     long nbrOfEventsToPublish = this.nbrOfEvents;
                     final IntWrapper tmpInt = this.tmpIntWrapper;
@@ -198,7 +196,7 @@ public class RingBuffersPerf {
                     throw new UnsupportedOperationException(this.claimType+" unsupported");
                 }
             } catch (InterruptedException e) {
-                e.printStackTrace();
+                throw new RuntimeException(e);
             }
         }
     }
@@ -207,7 +205,7 @@ public class RingBuffersPerf {
         final PostPaddedAtomicLong volatileNbrOfLocalEvents = new PostPaddedAtomicLong();
         int nbrOfLocalEvents = 0;
         @Override
-        public void readEvent(long sequence, int eventIndex) {
+        public void readEvent(long sequence, int index) {
             ++this.nbrOfLocalEvents;
         }
         @Override
@@ -629,13 +627,9 @@ public class RingBuffersPerf {
             final ArrayList<MySubscriber> subscribers,
             long value) {
         while (sum(subscribers) < value) {
-            try {
-                // Less CPU consuming than a yield,
-                // and should not bias timing too much.
-                Thread.sleep(1);
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            }
+            // Less CPU consuming than a yield,
+            // and should not bias timing too much.
+            Unchecked.sleepMS(1);
         }
     }
     

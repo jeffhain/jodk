@@ -17,7 +17,7 @@ package net.jodk.threading.locks;
 
 /**
  * Condilock that has no lock, and sleep-waits, after eventual initial
- * spinning wait (busy and/or yielding, non timed and/or timed).
+ * spinning wait (busy and/or yielding).
  */
 public class SmartSleepingCondilock extends SleepingCondilock {
     
@@ -25,69 +25,35 @@ public class SmartSleepingCondilock extends SleepingCondilock {
     // MEMBERS
     //--------------------------------------------------------------------------
 
-    private final long nbrOfNonTimedConsecutiveBusySpins;
-
-    private final long nbrOfNonTimedYieldsAndConsecutiveBusySpins;
-    
-    private final long maxTimedSpinningWaitNS;
-
+    private final long nbrOfInitialBusySpins;
     private final int bigYieldThresholdNS;
-    
     private final long nbrOfBusySpinsAfterSmallYield;
+    private final long maxSpinningWaitNS;
     
     //--------------------------------------------------------------------------
     // PUBLIC METHODS
     //--------------------------------------------------------------------------
 
     /**
-     * Creates a condilock with no busy spinning.
-     */
-    public SmartSleepingCondilock() {
-        this(
-                0L, // nbrOfBusySpinsBeforeEachYield
-                0L); // maxTimedSpinningWaitNS
-    }
-
-    /**
-     * @param nbrOfBusySpinsBeforeEachYield Number of non-timed busy spins done
-     *        before timed spinning, and then number of timed busy spins done
-     *        after each timed yield. Must be >= 0.
-     * @param maxTimedSpinningWaitNS Max duration, in nanoseconds, for timed spinning
-     *        (busy or yielding) wait. Must be >= 0.
-     */
-    public SmartSleepingCondilock(
-            long nbrOfBusySpinsBeforeEachYield,
-            long maxTimedSpinningWaitNS) {
-        this(
-                nbrOfBusySpinsBeforeEachYield, // nbrOfNonTimedConsecutiveBusySpins
-                0L, // nbrOfNonTimedYieldsAndConsecutiveBusySpins
-                Integer.MAX_VALUE, // bigYieldThresholdNS (all yields considered small)
-                nbrOfBusySpinsBeforeEachYield, // nbrOfBusySpinsAfterSmallYield
-                maxTimedSpinningWaitNS);
-    }
-
-    /**
-     * @param nbrOfNonTimedConsecutiveBusySpins Number of non-timed busy spins. Must be >= 0.
-     * @param nbrOfNonTimedYieldsAndConsecutiveBusySpins Number of non-timed yielding spins,
-     *        each followed by the specified number of consecutive busy spins. Must be >= 0.
-     * @param bigYieldThresholdNS Duration of a timed yield, in nanoseconds, above which
-     *        the CPUs are considered busy, in which case no busy spinning is done before
+     * @param nbrOfInitialBusySpins Number of busy spins done to start spinning wait.
+     *        Must be >= 0.
+     * @param bigYieldThresholdNS Duration of a yield, in nanoseconds, from which
+     *        the CPU is considered busy, in which case no busy spinning is done before
      *        next yield, if any. Must be >= 0.
-     * @param nbrOfBusySpinsAfterSmallYield Number of timed busy spins done after a timed
+     *        If 0, all yields are considered big, and if Integer.MAX_VALUE,
+     *        all yields are considered small, which allows not to bother
+     *        timing yields duration.
+     * @param nbrOfBusySpinsAfterSmallYield Number of busy spins done after a
      *        yield that was considered small. Must be >= 0.
-     * @param maxTimedSpinningWaitNS Max duration, in nanoseconds, for timed spinning wait.
+     * @param maxSpinningWaitNS Max duration, in nanoseconds, for spinning wait.
      *        Must be >= 0.
      */
     public SmartSleepingCondilock(
-            long nbrOfNonTimedConsecutiveBusySpins,
-            long nbrOfNonTimedYieldsAndConsecutiveBusySpins,
+            long nbrOfInitialBusySpins,
             int bigYieldThresholdNS,
             long nbrOfBusySpinsAfterSmallYield,
-            long maxTimedSpinningWaitNS) {
-        if (nbrOfNonTimedConsecutiveBusySpins < 0) {
-            throw new IllegalArgumentException();
-        }
-        if (nbrOfNonTimedYieldsAndConsecutiveBusySpins < 0) {
+            long maxSpinningWaitNS) {
+        if (nbrOfInitialBusySpins < 0) {
             throw new IllegalArgumentException();
         }
         if (bigYieldThresholdNS < 0) {
@@ -96,14 +62,13 @@ public class SmartSleepingCondilock extends SleepingCondilock {
         if (nbrOfBusySpinsAfterSmallYield < 0) {
             throw new IllegalArgumentException();
         }
-        if (maxTimedSpinningWaitNS < 0) {
+        if (maxSpinningWaitNS < 0) {
             throw new IllegalArgumentException();
         }
-        this.nbrOfNonTimedConsecutiveBusySpins = nbrOfNonTimedConsecutiveBusySpins;
-        this.nbrOfNonTimedYieldsAndConsecutiveBusySpins = nbrOfNonTimedYieldsAndConsecutiveBusySpins;
+        this.nbrOfInitialBusySpins = nbrOfInitialBusySpins;
         this.bigYieldThresholdNS = bigYieldThresholdNS;
         this.nbrOfBusySpinsAfterSmallYield = nbrOfBusySpinsAfterSmallYield;
-        this.maxTimedSpinningWaitNS = maxTimedSpinningWaitNS;
+        this.maxSpinningWaitNS = maxSpinningWaitNS;
     }
 
     //--------------------------------------------------------------------------
@@ -111,28 +76,27 @@ public class SmartSleepingCondilock extends SleepingCondilock {
     //--------------------------------------------------------------------------
     
     @Override
-    protected long getNbrOfNonTimedConsecutiveBusySpins() {
-        return this.nbrOfNonTimedConsecutiveBusySpins;
+    protected long getNbrOfInitialBusySpins() {
+        return this.nbrOfInitialBusySpins;
     }
 
     @Override
-    protected long getNbrOfNonTimedYieldsAndConsecutiveBusySpins() {
-        return this.nbrOfNonTimedYieldsAndConsecutiveBusySpins;
-    }
-
-    @Override
-    protected long getNbrOfTimedBusySpinsBeforeNextTimedYield(long previousYieldDurationNS) {
-        if (previousYieldDurationNS > this.bigYieldThresholdNS) {
-            // First yield, or too busy CPU: letting CPU to other threads.
-            return 0;
-        } else {
-            // Short yield: busy spinning.
-            return this.nbrOfBusySpinsAfterSmallYield;
-        }
+    protected long getNbrOfBusySpinsAfterEachYield() {
+        return getNbrOfBusySpinsAfterEachYield(
+                this.bigYieldThresholdNS,
+                this.nbrOfBusySpinsAfterSmallYield);
     }
     
     @Override
-    protected long getMaxTimedSpinningWaitNS() {
-        return this.maxTimedSpinningWaitNS;
+    protected long getNbrOfBusySpinsBeforeNextYield(long previousYieldDurationNS) {
+        return getNbrOfBusySpinsBeforeNextYield(
+                previousYieldDurationNS,
+                this.bigYieldThresholdNS,
+                this.nbrOfBusySpinsAfterSmallYield);
+    }
+    
+    @Override
+    protected long getMaxSpinningWaitNS() {
+        return this.maxSpinningWaitNS;
     }
 }

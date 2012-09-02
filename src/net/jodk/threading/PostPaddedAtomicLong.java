@@ -27,7 +27,7 @@ public class PostPaddedAtomicLong extends AtomicLong {
     //--------------------------------------------------------------------------
     
     /*
-     * Padding for 64 bits cache lines.
+     * Padding for 64 bytes cache lines.
      * 
      * Cache line padding not private, and is volatile,
      * hoping it will help for the JVM not to

@@ -17,7 +17,6 @@ package net.jodk.lang;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 
 import net.jodk.lang.ThinTime;
 
@@ -400,11 +399,6 @@ public class ThinTimeTest extends TestCase {
             executor.execute(new MyCallerRunnable(nbrOfCalls));
         }
         
-        executor.shutdown();
-        try {
-            executor.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS);
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
+        Unchecked.shutdownAndAwaitTermination(executor);
     }
 }

@@ -32,7 +32,7 @@ public class LangUtilsTest extends TestCase {
     // CONFIGURATION
     //--------------------------------------------------------------------------
 
-    private static final long TOLERANCE_NS = 500L * 1000L * 1000L;
+    private static final long TOLERANCE_NS = 100L * 1000L * 1000L;
 
     private static final int NBR_OF_CASES = 100 * 1000;
     

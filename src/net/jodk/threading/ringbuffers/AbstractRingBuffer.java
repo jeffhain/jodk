@@ -33,8 +33,11 @@ import net.jodk.threading.locks.MonitorCondilock;
  * 
  * Ring buffer service:
  * - keeps track of created workers
- * - workers use ring buffer state, along with possibly a specific state
+ * - workers use ring buffer state
  * - workers to be run in specified executor's threads
+ * - provides shutdown/shutdownNow/awaitTermination methods,
+ *   and sequences rejection on publish or shutdownNow
+ *   when shut down.
  * Non-service ring buffer:
  * - only keeps track of created workers if multicast
  * - each worker has its own state
@@ -45,7 +48,7 @@ import net.jodk.threading.locks.MonitorCondilock;
  * of InterfaceCondilock.
  * 
  * For services, workers are launched using Executor.execute(Runnable) method.
- * This does not allow the user handle an InterruptedException himself,
+ * This does not allow the user to handle an InterruptedException himself,
  * but anyway such an exception can only be thrown by worker's treatments
  * (since subscribers don't throw checked exceptions), so it should not be
  * interesting for the user.
@@ -73,7 +76,7 @@ import net.jodk.threading.locks.MonitorCondilock;
  * 
  * Worker's getMaxPassedSequence() returns a value updated:
  * - for multicast ring buffers, after reading a bounded batch of sequences
- *   (lazy set), and on worker's completion (non-lazy set),
+ *   (lazy set if readLazySets), and on worker's completion (non-lazy set),
  * - for unicast ring buffers, as it's not supposed to be of much use,
  *   only on worker's completion (non-lazy set).
  * 
@@ -87,12 +90,19 @@ import net.jodk.threading.locks.MonitorCondilock;
  * 
  * For both multicast and unicast implementations:
  * - tryClaimSequence() claims while there is room, even if shut down:
- *   it always returns a value >=0, or -1.
+ *   it always returns a value >= 0, or -1.
  * - tryClaimSequence(long) claims while there is room, even if shut down,
  *   but if there is no room waits, and then either return a value >= 0,
  *   -1, or -2 if wait is stopped due to shut down.
  * 
- * Package-private.
+ * Main differences between multicast and unicast ring buffers,
+ * regarding sequence publishing and processing:
+ * - how publishers check that they can publish a sequence:
+ *   - multicast: workers are ahead (check workers max passed sequences)
+ *   - unicast: entry is writable for this sequence
+ * - how workers check that they can read a sequence:
+ *   - multicast: publishers are ahead (if multi-publisher, serialize entries before)
+ *   - unicast: entry is readable for this sequence
  */
 abstract class AbstractRingBuffer implements InterfaceRingBuffer {
     
@@ -100,7 +110,7 @@ abstract class AbstractRingBuffer implements InterfaceRingBuffer {
      * For methods dealing with batches of (consecutive) sequences,
      * using "long minSequence, int nbrOfSequences" parameters
      * by default, and "long minSequence, long maxSequence"
-     * in case the range can be above Integer.MAX_VALUE
+     * in case the range could be above Integer.MAX_VALUE
      * (not always using this last solution, for (long,int)
      * is smaller than (long,long), and more on pair with
      * public API).
@@ -146,10 +156,10 @@ abstract class AbstractRingBuffer implements InterfaceRingBuffer {
     private static final boolean ASSERTIONS = false;
     
     //--------------------------------------------------------------------------
-    // PROTECTED CLASSES
+    // PACKAGE-PRIVATE CLASSES
     //--------------------------------------------------------------------------
 
-    protected static abstract class MyAbstractWorker implements InterfaceRingBufferWorker {
+    static abstract class MyAbstractWorker implements InterfaceRingBufferWorker {
         final AbstractRingBuffer ringBuffer;
         final boolean service;
         final boolean readLazySets;
@@ -473,29 +483,29 @@ abstract class AbstractRingBuffer implements InterfaceRingBuffer {
     // MEMBERS
     //--------------------------------------------------------------------------
     
-    protected static final long INITIAL_SEQUENCE = 0;
-    protected static final long SEQUENCE_NO_ROOM = -1;
-    protected static final long SEQUENCE_SHUT_DOWN = -2;
+    static final long INITIAL_SEQUENCE = 0;
+    static final long SEQUENCE_NO_ROOM = -1;
+    static final long SEQUENCE_SHUT_DOWN = -2;
     /**
      * For whatever usage.
      */
-    protected static final long SEQUENCE_NOT_SET = Long.MIN_VALUE;
+    static final long SEQUENCE_NOT_SET = Long.MIN_VALUE;
 
     /*
      * Ring buffer state.
      */
     
-    protected static final int STATE_PENDING = -1;
+    static final int STATE_PENDING = -1;
     /**
      * 0 for most usual state, for possibly faster check against non-zero values.
      */
-    protected static final int STATE_RUNNING = 0;
-    protected static final int STATE_TERMINATE_WHEN_IDLE = 1;
-    protected static final int STATE_TERMINATE_ASAP = 2;
-    protected static final int STATE_TERMINATE_BEING_CALLED = 3;
-    protected static final int STATE_TERMINATED = 4;
+    static final int STATE_RUNNING = 0;
+    static final int STATE_TERMINATE_WHEN_IDLE = 1;
+    static final int STATE_TERMINATE_ASAP = 2;
+    static final int STATE_TERMINATE_BEING_CALLED = 3;
+    static final int STATE_TERMINATED = 4;
 
-    protected final ReentrantLock mainLock = new ReentrantLock();
+    final ReentrantLock mainLock = new ReentrantLock();
 
     /**
      * Used for ring buffer services, or for multicast ring buffers
@@ -509,41 +519,41 @@ abstract class AbstractRingBuffer implements InterfaceRingBuffer {
      * Always set in main mutex, to make sure it doesn't change
      * while being read in main mutex.
      */
-    protected final PostPaddedAtomicInteger ringBufferState;
+    final PostPaddedAtomicInteger ringBufferState;
 
-    protected final int indexMask;
-    protected final boolean singlePublisher;
-    protected final boolean singleSubscriber;
-    protected final boolean multicast;
-    protected final boolean service;
+    final int indexMask;
+    final boolean singlePublisher;
+    final boolean singleSubscriber;
+    final boolean multicast;
+    final boolean service;
     /**
      * If true, read wait condilock must handle waits for lazy sets,
      * i.e. stop to wait sometimes to check whether it did miss
      * a change or not.
      */
-    protected final boolean readLazySets;
+    final boolean readLazySets;
     /**
      * If true, write wait condilock must handle waits for lazy sets,
      * i.e. stop to wait sometimes to check whether it did miss
      * a change or not.
      */
-    protected final boolean writeLazySets;
+    final boolean writeLazySets;
 
     /**
      * Condilock to wait on for an event to be read.
      */
-    protected final InterfaceCondilock readWaitCondilock;
+    final InterfaceCondilock readWaitCondilock;
     
     /**
      * Condilock to wait on for an event to be written.
      */
-    protected final InterfaceCondilock writeWaitCondilock;
+    final InterfaceCondilock writeWaitCondilock;
 
     /*
      * for ring buffer services
      */
 
-    protected final Executor executor;
+    final Executor executor;
     
     /**
      * Never null if service.
@@ -555,7 +565,7 @@ abstract class AbstractRingBuffer implements InterfaceRingBuffer {
      * if the ring buffer is a service, or if it is multicast, for
      * non-service multicast ring buffers.
      */
-    protected volatile int nbrOfWorkersAtStart;
+    volatile int nbrOfWorkersAtStart;
 
     /*
      * 
@@ -797,17 +807,30 @@ abstract class AbstractRingBuffer implements InterfaceRingBuffer {
     //--------------------------------------------------------------------------
     // PROTECTED METHODS
     //--------------------------------------------------------------------------
-
-    /*
-     * 
-     */
     
+    /**
+     * Only for ring buffer services.
+     * 
+     * Called outside main lock (unlike ThreadPoolExecutor.terminated()).
+     * 
+     * Can be called by shutdown thread, or by a worker thread.
+     * 
+     * Method invoked just before the ring buffer state is set to terminated
+     * (as done in ThreadPoolExecutor).
+     */
+    protected void terminated() {
+    }
+
+    //--------------------------------------------------------------------------
+    // PACKAGE-PRIVATE METHODS
+    //--------------------------------------------------------------------------
+
     /**
      * Signals all condilocks subscribers might be waiting on.
      */
-    protected abstract void signalSubscribers();
+    abstract void signalSubscribers();
 
-    protected void signalAllInLockWriteRead() {
+    void signalAllInLockWriteRead() {
         this.writeWaitCondilock.signalAllInLock();
         this.readWaitCondilock.signalAllInLock();
     }
@@ -833,20 +856,20 @@ abstract class AbstractRingBuffer implements InterfaceRingBuffer {
      * (normally or not) and becomes no longer running, i.e. no longer
      * interruptible by this treatment.
      */
-    protected void interruptWorkersImpl() {
+    void interruptWorkersImpl() {
         if (!this.service) {
             // For non-services, we don't keep track of running thread
             // (could be much of an overhead).
             throw new UnsupportedOperationException();
         }
-        mainLock.lock();
+        this.mainLock.lock();
         try {
             checkShutdownAccessIfNeeded(true);
             for (MyAbstractWorker worker : this.workers) {
                 worker.interruptRunningThreadIfAny();
             }
         } finally {
-            mainLock.unlock();
+            this.mainLock.unlock();
         }
     }
 
@@ -854,7 +877,7 @@ abstract class AbstractRingBuffer implements InterfaceRingBuffer {
      * Implementations of service-specific methods.
      */
 
-    protected void setRejectedEventHandlerImpl(final InterfaceRingBufferRejectedEventHandler rejectedEventHandler) {
+    void setRejectedEventHandlerImpl(final InterfaceRingBufferRejectedEventHandler rejectedEventHandler) {
         if (rejectedEventHandler == null) {
             throw new NullPointerException();
         }
@@ -864,19 +887,19 @@ abstract class AbstractRingBuffer implements InterfaceRingBuffer {
     /**
      * @return Current rejected event handler (never null if service).
      */
-    protected InterfaceRingBufferRejectedEventHandler getRejectedEventHandlerImpl() {
+    InterfaceRingBufferRejectedEventHandler getRejectedEventHandlerImpl() {
         return this.rejectedEventHandler;
     }
 
-    protected boolean isShutdownImpl() {
+    boolean isShutdownImpl() {
         return isShutdown(this.ringBufferState.get());
     }
 
-    protected boolean isTerminatedImpl() {
+    boolean isTerminatedImpl() {
         return isTerminated(this.ringBufferState.get());
     }
 
-    protected boolean awaitTerminationImpl(long timeoutNS) throws InterruptedException {
+    boolean awaitTerminationImpl(long timeoutNS) throws InterruptedException {
         // Boolean condition is immutable, so no need to create a new one each time.
         return this.terminationCondilock.awaitNanosWhileFalseInLock(
                 this.terminationBooleanCondition,
@@ -906,27 +929,10 @@ abstract class AbstractRingBuffer implements InterfaceRingBuffer {
      *         and call SecurityManager.checkAccess on all running worker
      *         threads, before any shutdown attempt, false otherwise.
      */
-    protected boolean mustCheckPermissionsOnShutdown(boolean interruption) {
+    boolean mustCheckPermissionsOnShutdown(boolean interruption) {
         return interruption;
     }
 
-    /**
-     * Only for ring buffer services.
-     * 
-     * Called outside main lock (unlike ThreadPoolExecutor.terminated()).
-     * 
-     * Can be called by shutdown thread, or by a worker thread.
-     * 
-     * Method invoked just before the ring buffer state is set to terminated
-     * (as done in ThreadPoolExecutor).
-     */
-    protected void terminated() {
-    }
-
-    //--------------------------------------------------------------------------
-    // PACKAGE-PRIVATE METHODS
-    //--------------------------------------------------------------------------
-    
     /**
      * Must be called just before the ring buffer
      * goes running.
@@ -1007,7 +1013,7 @@ abstract class AbstractRingBuffer implements InterfaceRingBuffer {
         final SecurityManager security = System.getSecurityManager();
         if ((security != null) && this.mustCheckPermissionsOnShutdown(interruption)) {
             security.checkPermission(modifyThreadPermission);
-            mainLock.lock();
+            this.mainLock.lock();
             try {
                 // Possibly no subscriber yet, in case of shutdown
                 // before subscribers registration.
@@ -1021,7 +1027,7 @@ abstract class AbstractRingBuffer implements InterfaceRingBuffer {
                     }
                 }
             } finally {
-                mainLock.unlock();
+                this.mainLock.unlock();
             }
         }
     }

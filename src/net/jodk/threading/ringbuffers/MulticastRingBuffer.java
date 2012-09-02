@@ -24,7 +24,7 @@ import net.jodk.lang.IntWrapper;
 import net.jodk.lang.InterfaceBooleanCondition;
 import net.jodk.lang.LangUtils;
 import net.jodk.lang.NumbersUtils;
-import net.jodk.threading.NonNullOrAtomicReference;
+import net.jodk.threading.NonNullElseAtomicReference;
 import net.jodk.threading.PostPaddedAtomicInteger;
 import net.jodk.threading.PostPaddedAtomicLong;
 import net.jodk.threading.PostPaddedAtomicReference;
@@ -453,7 +453,7 @@ public class MulticastRingBuffer extends AbstractRingBuffer {
             if (worker.service) {
                 if (!endSequence.isSet()) {
                     // Will likely wait.
-                    worker.callOnBatchEndOrNotAndSetMPSOrNotAndSignalAllInLock(worker.getMaxPassedSequenceLocal());
+                    worker.beforePossibleOrSureWait(worker.getMaxPassedSequenceLocal());
                 }
                 result = endSequence.getBlockingUninterruptibly();
             } else {
@@ -483,12 +483,16 @@ public class MulticastRingBuffer extends AbstractRingBuffer {
             writeWaitStopBC.localState_WWSBC = localState;
             final MyReadWaitStopBC readWaitStopBC = worker.readWaitStopBC;
             if (readWaitStopBC != null) {
-                readWaitStopBC.localState_RWSBC = writeWaitStopBC.localState_WWSBC;
+                readWaitStopBC.localState_RWSBC = localState;
             }
             long attemptSequence = worker.getMaxPassedSequenceLocal() + 1;
             
             /*
-             * If service, reading up to the end sequence.
+             * If state is TERMINATE_WHEN_IDLE:
+             * - if service, reading up to the end sequence,
+             * - else, reading up to being idle, i.e. up to waiting
+             *   for an ahead worker to make progress or for an event
+             *   to be published.
              */
             final boolean stopIfIdle = (!service) && (localState == STATE_TERMINATE_WHEN_IDLE);
             
@@ -510,7 +514,7 @@ public class MulticastRingBuffer extends AbstractRingBuffer {
                             if (stopIfIdle && (!MyWriteWaitStopBC.isBehindPublishers(writeWaitStopBC, attemptSequence))) {
                                 break;
                             }
-                            worker.callOnBatchEndOrNotAndSetMPSOrNotAndSignalAllInLock(attemptSequence-1);
+                            worker.beforePossibleOrSureWait(attemptSequence-1);
                             readWaitStopBC.sequence_RWSBC = attemptSequence;
                             readWaitCondilock.awaitUntilNanosTimeoutTimeWhileFalseInLock(readWaitStopBC,Long.MAX_VALUE);
                             if (readWaitStopBC.trueBecauseOfState_RWSBC) {
@@ -521,13 +525,13 @@ public class MulticastRingBuffer extends AbstractRingBuffer {
                     } else {
                         if (!MyWriteWaitStopBC.isBehindPublishers(writeWaitStopBC, attemptSequence)) {
                             // No need to call onBatchEnd if needed before return,
-                            // it's taken care of in callImpl(): calling it if needed
-                            // ONLY before actual (or almost sure) waits, or in finally
-                            // clause in callImpl().
+                            // it's taken care of in runWorkerImplAfterStateAndMPSUpdates(...):
+                            // calling it if needed ONLY before actual (or possible) waits,
+                            // or in finally clause in runWorkerImplAfterStateAndMPSUpdates(...).
                             if (stopIfIdle) {
                                 break;
                             }
-                            worker.callOnBatchEndOrNotAndSetMPSOrNotAndSignalAllInLock(attemptSequence-1);
+                            worker.beforePossibleOrSureWait(attemptSequence-1);
                             writeWaitStopBC.sequence_WWSBC = attemptSequence;
                             writeWaitCondilock.awaitUntilNanosTimeoutTimeWhileFalseInLock(writeWaitStopBC,Long.MAX_VALUE);
                             if (writeWaitStopBC.trueBecauseOfState_WWSBC) {
@@ -578,7 +582,13 @@ public class MulticastRingBuffer extends AbstractRingBuffer {
             }
             return false;
         }
-        private void callOnBatchEndOrNotAndSetMPSOrNotAndSignalAllInLock(long maxPassedSequence) {
+        /**
+         * To be called before possible or sure waits.
+         * 
+         * Calls onBatchEnd() if needed, and if volatile MPS is only set before
+         * waitings, sets it and does appropriate signaling.
+         */
+        private void beforePossibleOrSureWait(long maxPassedSequence) {
             try {
                 this.callOnBatchEndIfNeeded();
             } finally {
@@ -602,7 +612,7 @@ public class MulticastRingBuffer extends AbstractRingBuffer {
      * publishers side
      */
 
-    private static class MyTailWorkersSequencesRef extends NonNullOrAtomicReference<PostPaddedAtomicLong[]> {
+    private static class MyTailWorkersSequencesRef extends NonNullElseAtomicReference<PostPaddedAtomicLong[]> {
         final PostPaddedAtomicLong sharedRecentMinWorkerMPS;
         public MyTailWorkersSequencesRef(MulticastRingBuffer ringBuffer) {
             super(ringBuffer.tailWorkersMPSRef);
@@ -866,7 +876,7 @@ public class MulticastRingBuffer extends AbstractRingBuffer {
                 }
             }
         }
-        protected static final void onPublish(
+        protected static void onPublish(
                 MyAbstractPublishPort port,
                 long minPublished,
                 long maxPublished) {
@@ -1294,10 +1304,10 @@ public class MulticastRingBuffer extends AbstractRingBuffer {
     }
 
     //--------------------------------------------------------------------------
-    // PROTECTED METHODS
+    // PACKAGE-PRIVATE METHODS
     //--------------------------------------------------------------------------
 
-    protected MulticastRingBuffer(
+    MulticastRingBuffer(
             boolean service,
             //
             int bufferCapacity,
@@ -1362,7 +1372,7 @@ public class MulticastRingBuffer extends AbstractRingBuffer {
     }
 
     @Override
-    protected void signalSubscribers() {
+    void signalSubscribers() {
         this.readWaitCondilock.signalAllInLock();
         this.writeWaitCondilock.signalAllInLock();
     }
@@ -1371,7 +1381,7 @@ public class MulticastRingBuffer extends AbstractRingBuffer {
      * Implementations of service-specific methods.
      */
 
-    protected void shutdownImpl() {
+    void shutdownImpl() {
         // Main lock ensures consistency between permission checks,
         // and actual shutdown (in particular: involved worker threads).
         final boolean stateChanged;
@@ -1410,7 +1420,7 @@ public class MulticastRingBuffer extends AbstractRingBuffer {
     /**
      * @param interruptIfPossible If true, attempts to interrupt running workers.
      */
-    protected long[] shutdownNowImpl(boolean interruptIfPossible) {
+    long[] shutdownNowImpl(boolean interruptIfPossible) {
         // Main lock ensures:
         // - consistency between permission checks, and actual shutdown
         //   (in particular: involved worker threads),
@@ -1419,7 +1429,7 @@ public class MulticastRingBuffer extends AbstractRingBuffer {
         final boolean stateChanged;
         final boolean wasShutdown;
         boolean neverRunning = false;
-        mainLock.lock();
+        this.mainLock.lock();
         try {
             // Always possible.
             final boolean interruption = interruptIfPossible;
@@ -1441,7 +1451,7 @@ public class MulticastRingBuffer extends AbstractRingBuffer {
                 this.signalAllInLockWriteRead();
             }
         } finally {
-            mainLock.unlock();
+            this.mainLock.unlock();
         }
 
         final long[] sequencesRangesArray;
@@ -1537,9 +1547,9 @@ public class MulticastRingBuffer extends AbstractRingBuffer {
         return sequencesRangesArray;
     }
 
-    //--------------------------------------------------------------------------
-    // PACKAGE-PRIVATE METHODS
-    //--------------------------------------------------------------------------
+    /*
+     * 
+     */
     
     @Override
     void beforeRunning() {

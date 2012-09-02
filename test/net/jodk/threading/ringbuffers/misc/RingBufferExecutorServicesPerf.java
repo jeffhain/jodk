@@ -29,9 +29,8 @@ import net.jodk.test.TestUtils;
 import net.jodk.threading.AbortingRejectedExecutionHandler;
 import net.jodk.threading.locks.Condilocks;
 import net.jodk.threading.locks.InterfaceCondilock;
-import net.jodk.threading.ringbuffers.misc.RingBufferExecutorService;
 
-public class RingBufferExecutorServicePerf {
+public class RingBufferExecutorServicesPerf {
 
     //--------------------------------------------------------------------------
     // CONFIGURATION
@@ -172,10 +171,10 @@ public class RingBufferExecutorServicePerf {
     }
 
     public static void newRun(String[] args) {
-        new RingBufferExecutorServicePerf().run(args);
+        new RingBufferExecutorServicesPerf().run(args);
     }
     
-    public RingBufferExecutorServicePerf() {
+    public RingBufferExecutorServicesPerf() {
     }
 
     //--------------------------------------------------------------------------
@@ -184,54 +183,58 @@ public class RingBufferExecutorServicePerf {
 
     private void run(String[] args) {
         // XXX
-        System.out.println("--- "+RingBufferExecutorServicePerf.class.getSimpleName()+"... ---");
+        System.out.println("--- "+RingBufferExecutorServicesPerf.class.getSimpleName()+"... ---");
         System.out.println("number of calls = "+NBR_OF_CALLS);
         System.out.println("Wait types: Bu = Busy, Y = Yielding, B = Blocking, BE = Blocking Elusive");
         System.out.println("t1 = time elapsed up to last execute call done");
         System.out.println("t2 = time elapsed up to last runnable call done");
+        if (BENCH_JDK) {
+            System.out.println("If ForkJoinPool is called from itself, threads done publishing");
+            System.out.println("will contribute as workers, which biases the bench.");
+        }
 
         benchThroughput();
 
-        System.out.println("--- ..."+RingBufferExecutorServicePerf.class.getSimpleName()+" ---");
+        System.out.println("--- ..."+RingBufferExecutorServicesPerf.class.getSimpleName()+" ---");
     }
 
     private static void benchThroughput() {
-        int nbrOfCallers;
+        int nbrOfPublishers;
         int nbrOfWorkers;
         for (int parallelism=MIN_PARALLELISM;parallelism<=MAX_PARALLELISM;parallelism*=2) {
             System.out.println("");
             System.out.println("parallelism = "+parallelism);
             if (true && parallelism >= 2) {
                 if (true) {
-                    benchThroughput(nbrOfCallers = 1, nbrOfWorkers = parallelism);
+                    benchThroughput(nbrOfPublishers = 1, nbrOfWorkers = parallelism);
                 }
                 if (true && parallelism >= 4) {
-                    benchThroughput(nbrOfCallers = 2, nbrOfWorkers = parallelism);
+                    benchThroughput(nbrOfPublishers = 2, nbrOfWorkers = parallelism);
                 }
                 if (true) {
-                    benchThroughput(nbrOfCallers = parallelism, nbrOfWorkers = 1);
+                    benchThroughput(nbrOfPublishers = parallelism, nbrOfWorkers = 1);
                 }
                 if (true && parallelism >= 4) {
-                    benchThroughput(nbrOfCallers = parallelism, nbrOfWorkers = 2);
+                    benchThroughput(nbrOfPublishers = parallelism, nbrOfWorkers = 2);
                 }
             }
             if (true) {
-                benchThroughput(nbrOfCallers = parallelism, nbrOfWorkers = parallelism);
+                benchThroughput(nbrOfPublishers = parallelism, nbrOfWorkers = parallelism);
             }
         }
     }
 
     private static void benchThroughput(
-            int nbrOfCallers,
+            int nbrOfPublishers,
             int nbrOfWorkers) {
         System.out.println("");
         final ArrayList<MyExecutorData> executorsData = newExecutorsData(
-                nbrOfCallers,
+                nbrOfPublishers,
                 nbrOfWorkers);
         for (MyExecutorData executorData : executorsData) {
             benchThroughput(
                     executorData,
-                    nbrOfCallers,
+                    nbrOfPublishers,
                     NBR_OF_CALLS);
         }
     }
@@ -356,7 +359,7 @@ public class RingBufferExecutorServicePerf {
                     try {
                         countDown.wait();
                     } catch (InterruptedException e) {
-                        e.printStackTrace();
+                        throw new RuntimeException(e);
                     }
                 }
             }
@@ -405,10 +408,10 @@ public class RingBufferExecutorServicePerf {
         final InterfaceFactory<MyExecutorServiceHelper> executorHelperFactory = new InterfaceFactory<MyExecutorServiceHelper>() {
             @Override
             public MyExecutorServiceHelper newInstance() {
-                final ForkJoinPool fpj = new ForkJoinPool(nbrOfPublishers + nbrOfWorkers);
+                final ForkJoinPool fjp = new ForkJoinPool(nbrOfPublishers + nbrOfWorkers);
                 return new MyExecutorServiceHelper(
-                        fpj,
-                        fpj);
+                        fjp,
+                        fjp);
             }
         };
         return new MyExecutorData(
@@ -429,7 +432,7 @@ public class RingBufferExecutorServicePerf {
                 final ExecutorService workersES = newES();
                 return new MyExecutorServiceHelper(
                         Executors.newCachedThreadPool(),
-                        new RingBufferExecutorService(
+                        new URBExecutorService(
                                 bufferCapacity,
                                 pubSeqNbrOfAtomicCounters,
                                 readLazySets,
@@ -460,7 +463,7 @@ public class RingBufferExecutorServicePerf {
                 final ExecutorService workersES = newES();
                 return new MyExecutorServiceHelper(
                         Executors.newCachedThreadPool(),
-                        new RingBufferExecutorService(
+                        new URBExecutorService(
                                 bufferCapacity,
                                 pubSeqNbrOfAtomicCounters,
                                 readLazySets,
@@ -491,7 +494,7 @@ public class RingBufferExecutorServicePerf {
                 final ExecutorService workersES = newES();
                 return new MyExecutorServiceHelper(
                         Executors.newCachedThreadPool(),
-                        new RingBufferExecutorService(
+                        new MRBExecutorService(
                                 bufferCapacity,
                                 singlePublisher,
                                 readLazySets,

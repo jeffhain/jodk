@@ -74,7 +74,7 @@ public class ThinTime {
      * = 31_536_000_000 milliseconds
      * = 31_536_000_000_000_000 nanoseconds
      * and
-     * (2^63)/31_536_000_000_000_000 = 292,47120867753601623541349568747
+     * (2^63)/31_536_000_000_000_000 = 292.47120867753601623541349568747
      * so with time in nanoseconds, starting from zero, a long allows to go up to 292 years,
      * and starting from Long.MIN_VALUE, up to 584 years, which should be enough for most needs.
      * 
@@ -436,7 +436,7 @@ public class ThinTime {
              *   only get smaller, and finally don't change anymore.
              *   Though, it's nice to have them get small ASAP, and doesn't hurt to take care
              *   of it since they are only set a finite (and small) number of time.
-             *   Also if using "setMinAndGet" to set each of them, no need for synchronization
+             *   Also if using "ensureMinAndGet" to set each of them, no need for synchronization
              *   or lock to set them together.
              *   ===> Using CAS and stuffs for these.
              * - _lastGetSCTM and _lastReturnedCTN:

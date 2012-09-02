@@ -17,6 +17,11 @@ package net.jodk.threading;
 
 import java.util.concurrent.ExecutorService;
 
+/**
+ * Interface used instead of RejectedExecutionHandler,
+ * which depends on ThreadPoolExecutor concrete class.
+ * This interface also allows for batch rejections.
+ */
 public interface InterfaceRejectedExecutionHandler {
     
     public void onRejectedExecution(

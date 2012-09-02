@@ -66,6 +66,8 @@ public interface InterfaceCondilock extends Condition, InterfaceLocker {
      * (unlike awaitUntil(Date)).
      * 
      * @param deadlineNS Deadline to wait for, in nanoseconds.
+     * @return True if this method returned before the specified deadline could be reached,
+     *         false otherwise.
      * @throws InterruptedException if current thread is interrupted.
      */
     public boolean awaitUntilNanos(long deadlineNS) throws InterruptedException;

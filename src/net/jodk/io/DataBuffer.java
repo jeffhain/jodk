@@ -677,7 +677,7 @@ public class DataBuffer implements Comparable<DataBuffer> {
          * no array is accessible, that means we have a ByteBuffer, for which
          * big endian or little endian helper methods actually use ByteBuffer's
          * (i.e. the DataBuffer's) order, but that would not work for some tests
-         * that use hacky helpers.
+         * that could use hacky helpers.
          */
 
         boolean compareChunks = true;
@@ -696,7 +696,7 @@ public class DataBuffer implements Comparable<DataBuffer> {
                 // Using this's order.
                 compareSameOrderBigEndian = this.bigEndian;
             } else if (this.bigEndian == ozer.bigEndian) {
-                // Using buffers order.
+                // Using buffer's order.
                 compareSameOrderBigEndian = this.bigEndian;
             } else {
                 compareDiffOrder = true;
@@ -2184,6 +2184,7 @@ public class DataBuffer implements Comparable<DataBuffer> {
     /**
      * @return A string summarizing the state of this buffer.
      */
+    @Override
     public String toString() {
         /*
          * Similar to ByteBuffer's toString.

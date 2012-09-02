@@ -48,7 +48,7 @@
 - Default order for classes content:
   - configuration (static fields) (first for easy access)
   - inner classes (from public to private) (put before class fields and methods
-    that might make use of it)
+    that might make use of them)
   - fields (put early (if no inner class) to quickly see class data)
   - methods (from public to private)
 

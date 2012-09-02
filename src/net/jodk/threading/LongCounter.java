@@ -115,6 +115,11 @@ public class LongCounter {
      */
     private final int nbrOfCells;
     private final int indexMask;
+    
+    /**
+     * This is also the number of bits in indexMask.
+     */
+    private final int nbrOfCellsLog2;
 
     /**
      * Each thread local instance is also specific to this counter,
@@ -156,6 +161,9 @@ public class LongCounter {
 
         this.nbrOfCells = nbrOfCells;
         this.indexMask = nbrOfCells-1;
+        
+        this.nbrOfCellsLog2 = NumbersUtils.log2(nbrOfCells);
+        
         this.defaultThreadLocalData = new ThreadLocal<LocalData>() {
             @Override
             public LocalData initialValue() {
@@ -277,7 +285,7 @@ public class LongCounter {
      *         has been called, or a hole occurred.
      */
     public long getNbrOfIncrementations() {
-        final int bitsShift = NumbersUtils.bitSizeForUnsignedValue(this.indexMask);
+        final int bitsShift = this.nbrOfCellsLog2;
         long nbr = 0;
         final PostPaddedAtomicLong[] cells = this.cells;
         for (int i=0;i<this.nbrOfCells;i++) {

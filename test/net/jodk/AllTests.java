@@ -27,12 +27,15 @@ import net.jodk.lang.ThinTimeTest;
 import net.jodk.threading.AtomicUtilsTest;
 import net.jodk.threading.HeisenLoggerTest;
 import net.jodk.threading.LongCounterTest;
+import net.jodk.threading.NonNullElseAtomicReferenceTest;
+import net.jodk.threading.NullElseAtomicReferenceTest;
 import net.jodk.threading.locks.CondilocksTest;
 import net.jodk.threading.locks.LocksUtilsTest;
 import net.jodk.threading.locks.ReentrantCheckerLockTest;
 import net.jodk.threading.ringbuffers.RingBufferWorkFlowBuilderTest;
 import net.jodk.threading.ringbuffers.RingBuffersTest;
 import net.jodk.threading.ringbuffers.RingBuffersUtilsTest;
+import net.jodk.threading.ringbuffers.misc.RingBufferExecutorServicesTest;
 
 import junit.framework.Test;
 import junit.framework.TestSuite;
@@ -55,29 +58,45 @@ public class AllTests {
          * tests per package and per lexicographic order
          */
         
+        // io
+        
         suite.addTestSuite(ByteArrayUtilsTest.class);
         suite.addTestSuite(ByteBufferUtilsTest.class);
         suite.addTestSuite(ByteOrderUtilsTest.class);
         suite.addTestSuite(ByteTabUtilsTest.class);
         suite.addTestSuite(DataBufferTest.class);
         
+        // lang
+        
         suite.addTestSuite(FastMathTest.class);
         suite.addTestSuite(LangUtilsTest.class);
         suite.addTestSuite(NumbersUtilsTest.class);
         suite.addTestSuite(ThinTimeTest.class);
 
+        // threading
+
         suite.addTestSuite(AtomicUtilsTest.class);
         suite.addTestSuite(HeisenLoggerTest.class);
         suite.addTestSuite(LongCounterTest.class);
+        suite.addTestSuite(NonNullElseAtomicReferenceTest.class);
+        suite.addTestSuite(NullElseAtomicReferenceTest.class);
 
+        // threading.locks
+        
         suite.addTestSuite(CondilocksTest.class);
         suite.addTestSuite(LocksUtilsTest.class);
         suite.addTestSuite(ReentrantCheckerLockTest.class);
 
+        // threading.ringbuffers
+        
         suite.addTestSuite(RingBuffersTest.class);
         suite.addTestSuite(RingBuffersUtilsTest.class);
         suite.addTestSuite(RingBufferWorkFlowBuilderTest.class);
+
+        // threading.ringbuffers.misc
         
+        suite.addTestSuite(RingBufferExecutorServicesTest.class);
+
         return suite;
     }
 }

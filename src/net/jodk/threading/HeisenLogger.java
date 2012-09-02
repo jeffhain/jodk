@@ -67,7 +67,7 @@ import net.jodk.lang.LangUtils;
  * it still prints its stack trace.
  * 
  * Logs are preceded by logger (instance) id, which is a unique long,
- * but date is logged before logger id, to allow for easy sorting.
+ * but date is logged before logger id, to allow for easy temporal sorting.
  */
 public class HeisenLogger {
     
@@ -306,7 +306,7 @@ public class HeisenLogger {
     private static final StringBuilder FLUSH_BUFFER = new StringBuilder();
 
     private static final AtomicReference<Thread> DAEMON;
-    private static final NullOrAtomicReference<Thread> FAST_DAEMON;
+    private static final NullElseAtomicReference<Thread> FAST_DAEMON;
     static {
         final Runnable runnable = new Runnable() {
             @Override
@@ -326,10 +326,10 @@ public class HeisenLogger {
         final Thread thread = new Thread(runnable, HeisenLogger.class.getSimpleName());
         thread.setDaemon(true);
         DAEMON = new AtomicReference<Thread>(thread);
-        FAST_DAEMON = new NullOrAtomicReference<Thread>(DAEMON);
+        FAST_DAEMON = new NullElseAtomicReference<Thread>(DAEMON);
     }
 
-    private static final ThreadLocal<HeisenLogger> tlThreadData = new ThreadLocal<HeisenLogger>() {
+    private static final ThreadLocal<HeisenLogger> tlLogger = new ThreadLocal<HeisenLogger>() {
         @Override
         public HeisenLogger initialValue() {
             return newLogger();
@@ -432,7 +432,7 @@ public class HeisenLogger {
      * @return Default thread-local logger.
      */
     public static HeisenLogger getDefaultThreadLocalLogger() {
-        return tlThreadData.get();
+        return tlLogger.get();
     }
 
     /**
@@ -448,7 +448,7 @@ public class HeisenLogger {
     public static HeisenLogger getDefaultThreadLocalLogger(RefLocal ref) {
         HeisenLogger logger = ref.logger;
         if (logger == null) {
-            logger = tlThreadData.get();
+            logger = tlLogger.get();
             ref.logger = logger;
         }
         return logger;
@@ -590,6 +590,17 @@ public class HeisenLogger {
     public static void flushPendingLogsAndStream() {
         flushPendingLogs();
         PRINT_STREAM.flush();
+    }
+    
+    /**
+     * Useful if wanting to create timestamps
+     * homogeneous with this class ones.
+     * 
+     * @return Value subtracted from System.nanoTime()
+     *         to obtain logs timestamps.
+     */
+    public static long getInitialDateNS() {
+        return INITIAL_DATE_NS;
     }
 
     /*

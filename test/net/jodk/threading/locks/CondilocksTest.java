@@ -89,7 +89,7 @@ public class CondilocksTest extends TestCase {
             } catch (InterruptedException e) {
                 throw e;
             } catch (Exception e) {
-                e.printStackTrace();
+                throw new RuntimeException(e);
             }
         }
         @Override
@@ -683,7 +683,7 @@ public class CondilocksTest extends TestCase {
         try {
             waiter.awaitInLock();
         } catch (InterruptedException e) {
-            e.printStackTrace();
+            throw new RuntimeException(e);
         }
         long b = nowNS();
         assertTrue(b-a <= maxDurationNS + TOLERANCE_NS);
@@ -699,7 +699,7 @@ public class CondilocksTest extends TestCase {
         try {
             waiter.awaitInLock();
         } catch (InterruptedException e) {
-            e.printStackTrace();
+            throw new RuntimeException(e);
         }
         long b = nowNS();
         assertTrue(Math.abs((b-a) - durationNS) <= TOLERANCE_NS);
@@ -907,28 +907,28 @@ public class CondilocksTest extends TestCase {
     }
 
     private static InterfaceCondilock newSmartMonitorCondilock(
-            long maxTimedSpinningWaitNS,
+            long maxSpinningWaitNS,
             long maxBlockingWaitChunkNS) {
         return new SmartMonitorCondilock(
-                0L, // nbrOfNonTimedConsecutiveBusySpins
-                0L, // nbrOfNonTimedYieldsAndConsecutiveBusySpins
+                0L, // nbrOfInitialBusySpins
                 0, // bigYieldThresholdNS
                 0L, // nbrOfBusySpinsAfterSmallYield
-                maxTimedSpinningWaitNS, // maxTimedSpinningWaitNS
+                maxSpinningWaitNS, // maxSpinningWaitNS
+                //
                 false, // elusiveInLockSignaling
                 maxBlockingWaitChunkNS, // initialBlockingWaitChunkNS
                 0.0); // blockingWaitChunkIncreaseRate
     }
 
     private static InterfaceCondilock newSmartLockCondilock(
-            long maxTimedSpinningWaitNS,
+            long maxSpinningWaitNS,
             long maxBlockingWaitChunkNS) {
         return new SmartLockCondilock(
-                0L, // nbrOfNonTimedConsecutiveBusySpins
-                0L, // nbrOfNonTimedYieldsAndConsecutiveBusySpins
+                0L, // nbrOfInitialBusySpins
                 0, // bigYieldThresholdNS
                 0L, // nbrOfBusySpinsAfterSmallYield
-                maxTimedSpinningWaitNS, // maxTimedSpinningWaitNS
+                maxSpinningWaitNS, // maxSpinningWaitNS
+                //
                 false, // elusiveInLockSignaling
                 maxBlockingWaitChunkNS, // initialBlockingWaitChunkNS
                 0.0); // blockingWaitChunkIncreaseRate
@@ -942,7 +942,7 @@ public class CondilocksTest extends TestCase {
         try {
             Thread.sleep(ms);
         } catch (InterruptedException e) {
-            e.printStackTrace();
+            throw new RuntimeException(e);
         }
     }
     
@@ -963,7 +963,7 @@ public class CondilocksTest extends TestCase {
                 try {
                     Thread.sleep(ms);
                 } catch (InterruptedException e) {
-                    e.printStackTrace();
+                    throw new RuntimeException(e);
                 }
                 condilock.signalAllInLock();
             }

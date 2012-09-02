@@ -23,8 +23,9 @@ import net.jodk.lang.ThinTimePerf;
 import net.jodk.test.TestUtils;
 import net.jodk.threading.HeisenLoggerPerf;
 import net.jodk.threading.LongCounterPerf;
+import net.jodk.threading.locks.CondilocksPerf;
 import net.jodk.threading.ringbuffers.RingBuffersPerf;
-import net.jodk.threading.ringbuffers.misc.RingBufferExecutorServicePerf;
+import net.jodk.threading.ringbuffers.misc.RingBufferExecutorServicesPerf;
 
 /**
  * perf = bench or accuracy
@@ -51,17 +52,31 @@ public class AllPerfs {
         // FastMath first, to bench class load.
         FastMathPerf.newRun(args);
         
+        // io
+        
         BufferOpPerf.newRun(args);
         DataBufferPerf.newRun(args);
+        
+        // lang
         
         NumbersUtilsPerf.newRun(args);
         ThinTimePerf.newRun(args);
         
+        // threading
+        
         HeisenLoggerPerf.newRun(args);
         LongCounterPerf.newRun(args);
         
+        // threading.locks
+        
+        CondilocksPerf.newRun(args);
+        
+        // threading.ringbuffers
+        
         RingBuffersPerf.newRun(args);
         
-        RingBufferExecutorServicePerf.newRun(args);
+        // threading.ringbuffers.misc
+        
+        RingBufferExecutorServicesPerf.newRun(args);
     }
 }

@@ -304,6 +304,14 @@ public strictfp class FastMathPerf {
         test_round_float();
         settle();
         test_round_double();
+        settle();
+        test_getExponent_float();
+        settle();
+        test_getExponent_double();
+        settle();
+        test_toDegrees_double();
+        settle();
+        test_toRadians_double();
 
         // others
 
@@ -1483,7 +1491,7 @@ public strictfp class FastMathPerf {
 #
          */
         final boolean avoidBug = false;
-        final int nbrOfCalls = avoidBug ? 10 * 1000/2 : NBR_OF_VALUES;
+        final int nbrOfCalls = avoidBug ? 10 * 1000/2 : NBR_OF_CALLS;
 
         System.out.println("--- testing atan2(double,double) ---");
 
@@ -5916,6 +5924,118 @@ public strictfp class FastMathPerf {
         if (!foundDifferences) {
             System.out.println("none.");
         }
+        
+        useDummy(dummy);
+    }
+
+    private void test_getExponent_float() {
+        int i;
+        int j;
+        int dummy = 0;
+
+        System.out.println("--- testing getExponent(float) ---");
+
+        // all magnitudes
+
+        j=0;
+        startTimer();
+        for (i=0;i<NBR_OF_CALLS;i++) {
+            dummy += Math.getExponent(valuesFloatAllMagnitudes[j]);
+            j = (j<NBR_OF_VALUES-1) ? j+1 : 0;
+        }
+        System.out.println("Loop on     Math.getExponent(float), values of all magnitudes, took "+getElapsedSeconds()+" s");
+
+        j=0;
+        startTimer();
+        for (i=0;i<NBR_OF_CALLS;i++) {
+            dummy += FastMath.getExponent(valuesFloatAllMagnitudes[j]);
+            j = (j<NBR_OF_VALUES-1) ? j+1 : 0;
+        }
+        System.out.println("Loop on FastMath.getExponent(float), values of all magnitudes, took "+getElapsedSeconds()+" s... ");
+        
+        useDummy(dummy);
+    }
+
+    private void test_getExponent_double() {
+        int i;
+        int j;
+        int dummy = 0;
+
+        System.out.println("--- testing getExponent(double) ---");
+
+        // all magnitudes
+
+        j=0;
+        startTimer();
+        for (i=0;i<NBR_OF_CALLS;i++) {
+            dummy += Math.getExponent(valuesDoubleAllMagnitudes[j]);
+            j = (j<NBR_OF_VALUES-1) ? j+1 : 0;
+        }
+        System.out.println("Loop on     Math.getExponent(double), values of all magnitudes, took "+getElapsedSeconds()+" s");
+
+        j=0;
+        startTimer();
+        for (i=0;i<NBR_OF_CALLS;i++) {
+            dummy += FastMath.getExponent(valuesDoubleAllMagnitudes[j]);
+            j = (j<NBR_OF_VALUES-1) ? j+1 : 0;
+        }
+        System.out.println("Loop on FastMath.getExponent(double), values of all magnitudes, took "+getElapsedSeconds()+" s... ");
+        
+        useDummy(dummy);
+    }
+
+    private void test_toDegrees_double() {
+        int i;
+        int j;
+        double dummy = 0.0;
+
+        System.out.println("--- testing toDegrees(double) ---");
+
+        // all magnitudes
+
+        j=0;
+        startTimer();
+        for (i=0;i<NBR_OF_CALLS;i++) {
+            dummy += Math.toDegrees(valuesDoubleAllMagnitudes[j]);
+            j = (j<NBR_OF_VALUES-1) ? j+1 : 0;
+        }
+        System.out.println("Loop on     Math.toDegrees(double), values of all magnitudes, took "+getElapsedSeconds()+" s");
+
+        j=0;
+        startTimer();
+        for (i=0;i<NBR_OF_CALLS;i++) {
+            dummy += FastMath.toDegrees(valuesDoubleAllMagnitudes[j]);
+            j = (j<NBR_OF_VALUES-1) ? j+1 : 0;
+        }
+        System.out.println("Loop on FastMath.toDegrees(double), values of all magnitudes, took "+getElapsedSeconds()+" s... ");
+        
+        useDummy(dummy);
+    }
+
+    private void test_toRadians_double() {
+        int i;
+        int j;
+        double dummy = 0.0;
+
+        System.out.println("--- testing toRadians(double) ---");
+
+        // all magnitudes
+
+        j=0;
+        startTimer();
+        for (i=0;i<NBR_OF_CALLS;i++) {
+            dummy += Math.toRadians(valuesDoubleAllMagnitudes[j]);
+            j = (j<NBR_OF_VALUES-1) ? j+1 : 0;
+        }
+        System.out.println("Loop on     Math.toRadians(double), values of all magnitudes, took "+getElapsedSeconds()+" s");
+
+        j=0;
+        startTimer();
+        for (i=0;i<NBR_OF_CALLS;i++) {
+            dummy += FastMath.toRadians(valuesDoubleAllMagnitudes[j]);
+            j = (j<NBR_OF_VALUES-1) ? j+1 : 0;
+        }
+        System.out.println("Loop on FastMath.toRadians(double), values of all magnitudes, took "+getElapsedSeconds()+" s... ");
         
         useDummy(dummy);
     }

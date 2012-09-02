@@ -137,17 +137,17 @@ public class LockCondilock extends AbstractCondilock {
             final InterfaceBooleanCondition booleanCondition,
             long timeoutNS) throws InterruptedException {
         if (!booleanCondition.isTrue()) {
-            if ((timeoutNS = spinningWaitNanosWhileFalse_notLocked(booleanCondition, timeoutNS)) <= 0) {
+            if ((timeoutNS = spinningWaitNanosWhileFalse(this, booleanCondition, timeoutNS)) <= 0) {
                 return (timeoutNS < 0);
             }
             final Lock lock = this.lock;
             lock.lock();
             try {
-                this.afterLockForAwaitOnBooleanCondition();
+                this.afterLockWaitingForBooleanCondition();
                 try {
-                    return this.blockingWaitNanosWhileFalse_locked(booleanCondition, timeoutNS);
+                    return blockingWaitNanosWhileFalse_TT_locked(this, booleanCondition, timeoutNS);
                 } finally {
-                    this.beforeUnlockForAwaitOnBooleanCondition();
+                    this.beforeUnlockWaitingForBooleanCondition();
                 }
             } finally {
                 lock.unlock();
@@ -162,17 +162,17 @@ public class LockCondilock extends AbstractCondilock {
             long endTimeoutTimeNS) throws InterruptedException {
         if (!booleanCondition.isTrue()) {
             long timeoutNS;
-            if ((timeoutNS = spinningWaitUntilNanosTimeoutTimeWhileFalse_notLocked(booleanCondition, endTimeoutTimeNS)) <= 0) {
+            if ((timeoutNS = spinningWaitUntilNanosWhileFalse_TT(this, booleanCondition, endTimeoutTimeNS)) <= 0) {
                 return (timeoutNS < 0);
             }
             final Lock lock = this.lock;
             lock.lock();
             try {
-                this.afterLockForAwaitOnBooleanCondition();
+                this.afterLockWaitingForBooleanCondition();
                 try {
-                    return this.blockingWaitUntilNanosTimeoutTimeWhileFalse_locked(booleanCondition, endTimeoutTimeNS);
+                    return blockingWaitUntilNanosWhileFalse_TT_locked(this, booleanCondition, endTimeoutTimeNS);
                 } finally {
-                    this.beforeUnlockForAwaitOnBooleanCondition();
+                    this.beforeUnlockWaitingForBooleanCondition();
                 }
             } finally {
                 lock.unlock();
@@ -187,17 +187,17 @@ public class LockCondilock extends AbstractCondilock {
             long deadlineNS) throws InterruptedException {
         if (!booleanCondition.isTrue()) {
             long timeoutNS;
-            if ((timeoutNS = spinningWaitUntilNanosWhileFalse_notLocked(booleanCondition, deadlineNS)) <= 0) {
+            if ((timeoutNS = spinningWaitUntilNanosWhileFalse_DT(this, booleanCondition, deadlineNS)) <= 0) {
                 return (timeoutNS < 0);
             }
             final Lock lock = this.lock;
             lock.lock();
             try {
-                this.afterLockForAwaitOnBooleanCondition();
+                this.afterLockWaitingForBooleanCondition();
                 try {
-                    return this.blockingWaitUntilNanosWhileFalse_locked(booleanCondition, deadlineNS);
+                    return blockingWaitUntilNanosWhileFalse_DT_locked(this, booleanCondition, deadlineNS);
                 } finally {
-                    this.beforeUnlockForAwaitOnBooleanCondition();
+                    this.beforeUnlockWaitingForBooleanCondition();
                 }
             } finally {
                 lock.unlock();
@@ -242,7 +242,7 @@ public class LockCondilock extends AbstractCondilock {
         if (timing) {
             // This is the only place where backing's condition timing
             // is used. Note that we always use our own timing above it.
-            this.condition.awaitNanos(timeoutNS);
+            long unused = this.condition.awaitNanos(timeoutNS);
         } else {
             this.condition.await();
         }
@@ -252,16 +252,16 @@ public class LockCondilock extends AbstractCondilock {
      * Must be called right after lock has been acquired,
      * when awaiting on boolean condition.
      */
-    protected void afterLockForAwaitOnBooleanCondition() {
+    protected void afterLockWaitingForBooleanCondition() {
     }
     
     /**
      * Must be called right before unlock,
      * when awaiting on boolean condition.
      * 
-     * Must not be called if afterLockForAwaitOnBooleanCondition()
+     * Must not be called if afterLockWaitingForBooleanCondition()
      * threw an exception.
      */
-    protected void beforeUnlockForAwaitOnBooleanCondition() {
+    protected void beforeUnlockWaitingForBooleanCondition() {
     }
 }

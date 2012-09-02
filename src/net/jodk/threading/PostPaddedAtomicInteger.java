@@ -27,7 +27,7 @@ public class PostPaddedAtomicInteger extends AtomicInteger {
     //--------------------------------------------------------------------------
     
     /*
-     * Padding for 64 bits cache lines.
+     * Padding for 64 bytes cache lines.
      */
     
     volatile long p1,p2,p3,p4,p5,p6,p7;

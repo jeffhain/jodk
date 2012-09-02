@@ -19,11 +19,11 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Condition;
 
 /**
- * Lock that does not actually lock, which isLocked and isHeldByCurrentThread
+ * Lock that does not actually lock, which isLocked() and isHeldByCurrentThread()
  * methods always return false, and which check methods always return true.
  * 
  * If only one thread is used, can replace transparently actual locks,
- * as long as no treatments relies on isLocked or isHeldByCurrenThread methods
+ * as long as no treatment relies on isLocked() or isHeldByCurrenThread() methods
  * to return true, or on check methods to throw an exception, to work properly.
  * 
  * Useful to deal with concurrency-designed treatments
