@@ -1,0 +1,10 @@
+
+- Consider changing coding rules if zero-pause-GC
+  VMs become mainstream, depending on the duration
+  of the zero-pause.
+
+- Replace use of cache-line-padding classes with
+  use of @Contended annotation when available.
+
+- FastMath.toIntExact/addExact/subtractExact/multiplyExact:
+  delegate to Math when available, if not slower.

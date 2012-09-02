@@ -1,0 +1,127 @@
+/*
+ * Copyright 2012 Jeff Hain
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package net.jodk.threading.locks;
+
+import java.util.concurrent.Callable;
+
+import net.jodk.lang.InterfaceBooleanCondition;
+
+/**
+ * Condilock that has no lock, and always sleeps
+ * while it waits for a boolean condition to be true.
+ */
+public class SleepingCondilock extends AbstractCondilock {
+
+    //--------------------------------------------------------------------------
+    // PUBLIC METHODS
+    //--------------------------------------------------------------------------
+
+    public SleepingCondilock() {
+    }
+
+    /*
+     * 
+     */
+
+    @Override
+    public void runInLock(Runnable runnable) {
+        runnable.run();
+    }
+
+    @Override
+    public <V> V callInLock(Callable<V> callable) throws Exception {
+        return callable.call();
+    }
+
+    /*
+     * 
+     */
+
+    @Override
+    public void signal() {
+        // nothing to signal
+    }
+
+    @Override
+    public void signalAll() {
+        // nothing to signal
+    }
+
+    /*
+     * 
+     */
+
+    @Override
+    public boolean awaitNanosWhileFalseInLock(
+            final InterfaceBooleanCondition booleanCondition,
+            long timeoutNS) throws InterruptedException {
+        if (!booleanCondition.isTrue()) {
+            if ((timeoutNS = spinningWaitNanosWhileFalse_notLocked(booleanCondition, timeoutNS)) <= 0) {
+                return (timeoutNS < 0);
+            }
+            return this.sleepingWaitNanosWhileFalse(booleanCondition, timeoutNS);
+        }
+        return true;
+    }
+
+    @Override
+    public boolean awaitUntilNanosTimeoutTimeWhileFalseInLock(
+            final InterfaceBooleanCondition booleanCondition,
+            long endTimeoutTimeNS) throws InterruptedException {
+        if (!booleanCondition.isTrue()) {
+            long timeoutNS;
+            if ((timeoutNS = spinningWaitUntilNanosTimeoutTimeWhileFalse_notLocked(booleanCondition, endTimeoutTimeNS)) <= 0) {
+                return (timeoutNS < 0);
+            }
+            return this.sleepingWaitUntilNanosTimeoutTimeWhileFalse(booleanCondition, endTimeoutTimeNS);
+        }
+        return true;
+    }
+
+    @Override
+    public boolean awaitUntilNanosWhileFalseInLock(
+            final InterfaceBooleanCondition booleanCondition,
+            long deadlineNS) throws InterruptedException {
+        if (!booleanCondition.isTrue()) {
+            long timeoutNS;
+            if ((timeoutNS = spinningWaitUntilNanosWhileFalse_notLocked(booleanCondition, deadlineNS)) <= 0) {
+                return (timeoutNS < 0);
+            }
+            return this.sleepingWaitUntilNanosWhileFalse(booleanCondition, deadlineNS);
+        }
+        return true;
+    }
+
+    @Override
+    public void signalInLock() {
+        // nothing to signal
+    }
+
+    @Override
+    public void signalAllInLock() {
+        // nothing to signal
+    }
+    
+    //--------------------------------------------------------------------------
+    // PROTECTED METHODS
+    //--------------------------------------------------------------------------
+    
+    @Override
+    protected final void awaitNanosNoEstimate(long timeoutNS) throws InterruptedException {
+        throwIfInterrupted();
+        // no wait
+    }
+}
