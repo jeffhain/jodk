@@ -2434,6 +2434,17 @@ public class DataBufferTest extends AbstractBufferOpTezt {
      * 
      */
 
+    public void test_bufferCopy_DataBuffer_int_DataBuffer_int_int() {
+        test_copyBytesOperation(new InterfaceCopyBytesOperation<MyTab>() {
+            @Override
+            public void copyBytes(MyTab src, int srcFirstByteIndex, MyTab dest, int destFirstByteIndex, int byteSize) {
+                src.myBufferOrder(src.order);
+                dest.myBufferOrder(dest.order);
+                DataBuffer.bufferCopy(src.buffer, srcFirstByteIndex, dest.buffer, destFirstByteIndex, byteSize);
+            }
+        });
+    }
+
     public void test_bufferCopyBits_DataBuffer_long_DataBuffer_long_long() {
         test_copyBitsOperation(new InterfaceCopyBitsOperation<MyTab>() {
             @Override

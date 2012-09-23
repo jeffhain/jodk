@@ -79,6 +79,9 @@ public class MRBExecutorService extends RingBufferExecutorService {
     // PUBLIC METHODS
     //--------------------------------------------------------------------------
 
+    /**
+     * See MulticastRingBuffer Javadoc for arguments description.
+     */
     public MRBExecutorService(
             int bufferCapacity,
             boolean singlePublisher,

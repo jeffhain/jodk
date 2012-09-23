@@ -116,8 +116,8 @@ public class RingBuffersTest extends TestCase {
      * Number of events per publisher, is this value times buffer capacity.
      * 
      * Must be small enough for each run not to take too long,
-     * and allow for many test configurations, and for not
-     * to total number of events to overflow int type.
+     * and allow for many test configurations, and for total
+     * number of events not to overflow int type.
      * 
      * Must be large enough for a few ring buffer rounds, and for early
      * stops to have a chance to occur before all events have been processed,
@@ -213,7 +213,7 @@ public class RingBuffersTest extends TestCase {
         private final boolean ensureSingleHeadWorker;
         private final boolean ensureSingleTailWorker;
         //
-        private final long nbrOfEventsPerPublisher;
+        private final int nbrOfEventsPerPublisher;
         private final int totalNbrOfEvents;
         public MyTestContext(
                 final MyRingBufferHome home,
@@ -528,7 +528,7 @@ public class RingBuffersTest extends TestCase {
          */
         private final InterfaceRingBuffer ringBuffer;
         private final InterfaceRingBufferPublishPort publishPort;
-        private final long nbrOfSequencesToPublish;
+        private final int nbrOfSequencesToPublish;
         private final boolean monotonicPubSeq;
         private final boolean canUseBlockingClaims;
         private final long[] events;
@@ -544,7 +544,7 @@ public class RingBuffersTest extends TestCase {
                 final AtomicInteger publisherCounter,
                 final InterfaceRingBuffer ringBuffer,
                 final InterfaceRingBufferPublishPort publishPort,
-                long nbrOfSequencesToPublish,
+                int nbrOfSequencesToPublish,
                 boolean monotonicPubSeq,
                 boolean canUseBlockingClaims,
                 final long[] events,
@@ -566,7 +566,7 @@ public class RingBuffersTest extends TestCase {
             long lastClaimed = Long.MIN_VALUE;
             try {
                 final IntWrapper nbrOfSequencesWrapper = new IntWrapper();
-                long remainingNbrOfSequencesToPublish = this.nbrOfSequencesToPublish;
+                int remainingNbrOfSequencesToPublish = this.nbrOfSequencesToPublish;
                 if (DEBUG_PUB) {
                     logger.logLocal("publisher run",remainingNbrOfSequencesToPublish);
                     logger.logLocalLogs();
@@ -656,7 +656,7 @@ public class RingBuffersTest extends TestCase {
          */
         private long randomClaim(
                 boolean canUseBlockingClaims,
-                long remainingNbrOfSequencesToPublish,
+                int remainingNbrOfSequencesToPublish,
                 IntWrapper nbrOfSequences) throws InterruptedException {
             final long minSequence;
 
@@ -708,7 +708,7 @@ public class RingBuffersTest extends TestCase {
                     logger.logLocal("INC claimSequences(IntWrapper)");
                     logger.logLocalLogs();
                 }
-                nbrOfSequences.value = 1 + this.localRandom.nextInt((int)Math.min(10, remainingNbrOfSequencesToPublish));
+                nbrOfSequences.value = 1 + this.localRandom.nextInt(Math.min(10, remainingNbrOfSequencesToPublish));
                 minSequence = this.publishPort.claimSequences(nbrOfSequences);
                 if (DEBUG_PUB) {
                     logger.logLocal("DID claimSequences(IntWrapper)",minSequence,nbrOfSequences.value);
@@ -1525,8 +1525,8 @@ public class RingBuffersTest extends TestCase {
         final boolean useSetStateTerminateASAP = context.useSetStateTerminateASAP;
         final boolean terminateWhenIdleFirstIfBoth = context.terminateWhenIdleFirstIfBoth;
         final boolean withAheadWorkers = context.withAheadWorkers;
-        final long nbrOfEventsPerPublisher = context.nbrOfEventsPerPublisher;
-        final long totalNbrOfEvents = context.totalNbrOfEvents;
+        final int nbrOfEventsPerPublisher = context.nbrOfEventsPerPublisher;
+        final int totalNbrOfEvents = context.totalNbrOfEvents;
         
         /*
          * 

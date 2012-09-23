@@ -79,6 +79,9 @@ public class URBExecutorService extends RingBufferExecutorService {
     // PUBLIC METHODS
     //--------------------------------------------------------------------------
 
+    /**
+     * See UnicastRingBuffer Javadoc for arguments description.
+     */
     public URBExecutorService(
             int bufferCapacity,
             int pubSeqNbrOfAtomicCounters,

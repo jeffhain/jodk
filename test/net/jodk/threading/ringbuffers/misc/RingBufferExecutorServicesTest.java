@@ -16,11 +16,15 @@
 package net.jodk.threading.ringbuffers.misc;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Vector;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -560,30 +564,136 @@ public class RingBufferExecutorServicesTest extends TestCase {
     }
 
     public void test_shutdownNow() {
-        // only special cases, general case already covered
 
-        final ExecutorService executor = Executors.newCachedThreadPool();
-        for (final MyRBESHome rbesh : newRBESHs(4, executor, new MyREH())) {
-            final RingBufferExecutorService rbes = rbesh.rbes;
-
-            if (DEBUG) {
-                HeisenLogger.log("--------------------------------------------------------------------------------");
-                HeisenLogger.log("rbesh = "+rbesh);
-                HeisenLogger.flushPendingLogsAndStream();
+        // Executor to run workers.
+        final ExecutorService executor = new ThreadPoolExecutor(
+                0, Integer.MAX_VALUE,
+                60L, TimeUnit.SECONDS,
+                new SynchronousQueue<Runnable>()) {
+            @Override
+            public void execute(final Runnable command) {
+                super.execute(new Runnable() {
+                    public void run() {
+                        while (true) {
+                            command.run();
+                            if (Thread.interrupted()) {
+                                // Worker interrupted on shut down:
+                                // need to call it again for ring buffer
+                                // to terminate, for worker is considered
+                                // still running until its normal completion.
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                });
             }
-            
-            /*
-             * Result being mutable, must not reuse it if empty.
-             */
+        };
+        
+        /*
+         * Testing rejection on shut down, possibly in case of non-contiguous
+         * Runnables location in array.
+         */
 
-            List<Runnable> aborted1 = rbes.shutdownNow();
-            assertEquals(0, aborted1.size());
-            aborted1.add(null);
+        // Many tries, to tempt the devil.
+        for (int k=0;k<100;k++) {
+            MyREH reh = new MyREH();
+            for (final MyRBESHome rbesh : newRBESHs(4, executor, reh)) {
+                if (rbesh.nbrOfPubSeqCounters == 0) {
+                    // Single publisher.
+                    continue;
+                }
+                
+                final RingBufferExecutorService rbes = rbesh.rbes;
 
-            List<Runnable> aborted2 = rbes.shutdownNow();
-            assertEquals(0, aborted2.size());
-            assertNotSame(aborted1, aborted2);
+                final int nbrOfCallers = 8;
+                final int nbrOfCallsPerCaller = 1000;
+                
+                final ConcurrentHashMap<Runnable,Boolean> published = new ConcurrentHashMap<Runnable,Boolean>();
+                final ConcurrentHashMap<Runnable,Boolean> executed = new ConcurrentHashMap<Runnable,Boolean>();
+                final HashSet<Runnable> rejected = new HashSet<Runnable>();
+                
+                final ExecutorService callersExecutor = Executors.newCachedThreadPool();
+                
+                reh.rejected.clear();
+                for (int i=0;i<nbrOfCallers;i++) {
+                    callersExecutor.execute(new Runnable() {
+                        @Override
+                        public void run() {
+                            for (int j=0;j<nbrOfCallsPerCaller;j++) {
+                                Runnable runnable = new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        executed.put(this,Boolean.TRUE);
+                                    }
+                                };
+                                rbes.execute(runnable);
+                                published.put(runnable,Boolean.TRUE);
+                                
+                                // Stopping publishing early some time after shut down,
+                                // to allow for a few rejecting calls.
+                                if (((j&0xF) == 0) && rbes.isShutdown()) {
+                                    break;
+                                }
+                            }
+                        }
+                    });
+                }
+
+                // Should be enough for some publishers to start to publish.
+                Unchecked.sleepMS(1L);
+                List<Runnable> aborted = rbes.shutdownNow();
+                
+                Unchecked.awaitTermination(rbes);
+                Unchecked.shutdownAndAwaitTermination(callersExecutor);
+                
+                /*
+                 * checks
+                 */
+                
+                for (Runnable runnable : reh.rejected) {
+                    boolean added = rejected.add(runnable);
+                    // Not rejected multiple times.
+                    assertTrue(added);
+                }
+                for (Runnable runnable : aborted) {
+                    boolean added = rejected.add(runnable);
+                    // Not rejected multiple times.
+                    assertTrue(added);
+                }
+                
+                assertEquals(published.size(), executed.size() + rejected.size());
+            }
         }
+        
+        /*
+         * special cases
+         */
+        
+        {
+            for (final MyRBESHome rbesh : newRBESHs(4, executor, new MyREH())) {
+                final RingBufferExecutorService rbes = rbesh.rbes;
+
+                if (DEBUG) {
+                    HeisenLogger.log("--------------------------------------------------------------------------------");
+                    HeisenLogger.log("rbesh = "+rbesh);
+                    HeisenLogger.flushPendingLogsAndStream();
+                }
+                
+                /*
+                 * Result being mutable, must not reuse it if empty.
+                 */
+
+                List<Runnable> aborted1 = rbes.shutdownNow();
+                assertEquals(0, aborted1.size());
+                aborted1.add(null);
+
+                List<Runnable> aborted2 = rbes.shutdownNow();
+                assertEquals(0, aborted2.size());
+                assertNotSame(aborted1, aborted2);
+            }
+        }
+        
         Unchecked.shutdownAndAwaitTermination(executor);
     }
 

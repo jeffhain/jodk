@@ -61,10 +61,6 @@ public class ByteBufferUtils {
      * @throws IndexOutOfBoundsException if the specified bit position is out of range.
      */
     public static int padByteAtBit(ByteBuffer buffer, long bitPos) {
-        if (buffer.isReadOnly()) {
-            throw new ReadOnlyBufferException();
-        }
-        
         final BaseBTHelper tabHelper;
         final Object tab;
         final int tabOffset;
@@ -73,6 +69,9 @@ public class ByteBufferUtils {
             tab = buffer.array();
             tabOffset = buffer.arrayOffset();
         } else {
+            if (buffer.isReadOnly()) {
+                throw new ReadOnlyBufferException();
+            }
             tabHelper = BB_HELPER;
             tab = buffer;
             tabOffset = 0;
@@ -89,10 +88,6 @@ public class ByteBufferUtils {
      * @throws IndexOutOfBoundsException if the specified bit position is out of range.
      */
     public static void putBitAtBit(ByteBuffer buffer, long bitPos, boolean value) {
-        if (buffer.isReadOnly()) {
-            throw new ReadOnlyBufferException();
-        }
-        
         final BaseBTHelper tabHelper;
         final Object tab;
         final int tabOffset;
@@ -101,6 +96,9 @@ public class ByteBufferUtils {
             tab = buffer.array();
             tabOffset = buffer.arrayOffset();
         } else {
+            if (buffer.isReadOnly()) {
+                throw new ReadOnlyBufferException();
+            }
             tabHelper = BB_HELPER;
             tab = buffer;
             tabOffset = 0;
@@ -138,10 +136,6 @@ public class ByteBufferUtils {
      * @throws IndexOutOfBoundsException if specified bits are out of range.
      */
     public static void putIntSignedAtBit(ByteBuffer buffer, long firstBitPos, int signedValue, int bitSize) {
-        if (buffer.isReadOnly()) {
-            throw new ReadOnlyBufferException();
-        }
-
         final BaseBTHelper tabHelper;
         final Object tab;
         final int tabOffset;
@@ -150,6 +144,9 @@ public class ByteBufferUtils {
             tab = buffer.array();
             tabOffset = buffer.arrayOffset();
         } else {
+            if (buffer.isReadOnly()) {
+                throw new ReadOnlyBufferException();
+            }
             tabHelper = BB_HELPER;
             tab = buffer;
             tabOffset = 0;
@@ -164,10 +161,6 @@ public class ByteBufferUtils {
      * @throws IndexOutOfBoundsException if specified bits are out of range.
      */
     public static void putLongSignedAtBit(ByteBuffer buffer, long firstBitPos, long signedValue, int bitSize) {
-        if (buffer.isReadOnly()) {
-            throw new ReadOnlyBufferException();
-        }
-
         final BaseBTHelper tabHelper;
         final Object tab;
         final int tabOffset;
@@ -176,6 +169,9 @@ public class ByteBufferUtils {
             tab = buffer.array();
             tabOffset = buffer.arrayOffset();
         } else {
+            if (buffer.isReadOnly()) {
+                throw new ReadOnlyBufferException();
+            }
             tabHelper = BB_HELPER;
             tab = buffer;
             tabOffset = 0;
@@ -190,10 +186,6 @@ public class ByteBufferUtils {
      * @throws IndexOutOfBoundsException if specified bits are out of range.
      */
     public static void putIntUnsignedAtBit(ByteBuffer buffer, long firstBitPos, int unsignedValue, int bitSize) {
-        if (buffer.isReadOnly()) {
-            throw new ReadOnlyBufferException();
-        }
-
         final BaseBTHelper tabHelper;
         final Object tab;
         final int tabOffset;
@@ -202,6 +194,9 @@ public class ByteBufferUtils {
             tab = buffer.array();
             tabOffset = buffer.arrayOffset();
         } else {
+            if (buffer.isReadOnly()) {
+                throw new ReadOnlyBufferException();
+            }
             tabHelper = BB_HELPER;
             tab = buffer;
             tabOffset = 0;
@@ -216,10 +211,6 @@ public class ByteBufferUtils {
      * @throws IndexOutOfBoundsException if specified bits are out of range.
      */
     public static void putLongUnsignedAtBit(ByteBuffer buffer, long firstBitPos, long unsignedValue, int bitSize) {
-        if (buffer.isReadOnly()) {
-            throw new ReadOnlyBufferException();
-        }
-
         final BaseBTHelper tabHelper;
         final Object tab;
         final int tabOffset;
@@ -228,6 +219,9 @@ public class ByteBufferUtils {
             tab = buffer.array();
             tabOffset = buffer.arrayOffset();
         } else {
+            if (buffer.isReadOnly()) {
+                throw new ReadOnlyBufferException();
+            }
             tabHelper = BB_HELPER;
             tab = buffer;
             tabOffset = 0;
@@ -366,6 +360,35 @@ public class ByteBufferUtils {
      */
 
     /**
+     * Equivalent to calling bufferCopyBits(...) version with "* 8L"
+     * applied on indexes and size arguments.
+     * 
+     * @param src The source buffer.
+     * @param srcFirstByteIndex Starting byte index in the source buffer.
+     * @param dest The destination buffer.
+     * @param destFirstByteIndex Starting byte index in the destination buffer.
+     * @param byteSize The number of bytes to copy.
+     * @throws NullPointerException if either src or dest is null.
+     * @throws ReadOnlyBufferException if dest is read-only and byteSize > 0.
+     * @throws IllegalArgumentException if src and dest don't have the same byte order
+     *         or if byteSize is < 0.
+     * @throws IndexOutOfBoundsException if the specified bytes are out of range.
+     */
+    public static void bufferCopy(
+            ByteBuffer src,
+            int srcFirstByteIndex,
+            ByteBuffer dest,
+            int destFirstByteIndex,
+            int byteSize) {
+        bufferCopyBits(
+                src,
+                (((long)srcFirstByteIndex)<<3),
+                dest,
+                (((long)destFirstByteIndex)<<3),
+                (((long)byteSize)<<3));
+    }
+    
+    /**
      * If src has an array and dest is direct, and you are allowed to change
      * its position, it might be way more efficient to use dest.put(byte[],int,int),
      * which copies data with Unsafe by chunks of 1Mo or so.
@@ -380,7 +403,7 @@ public class ByteBufferUtils {
      * @param src The source buffer.
      * @param srcFirstBitPos Starting bit position in the source buffer.
      * @param dest The destination buffer.
-     * @param destLastBitPos Starting bit position in the destination buffer.
+     * @param destFirstBitPos Starting bit position in the destination buffer.
      * @param bitSize The number of bits to copy.
      * @throws NullPointerException if either src or dest is null.
      * @throws ReadOnlyBufferException if dest is read-only and bitSize > 0.
@@ -392,7 +415,7 @@ public class ByteBufferUtils {
             ByteBuffer src,
             long srcFirstBitPos,
             ByteBuffer dest,
-            long destLastBitPos,
+            long destFirstBitPos,
             long bitSize) {
         // Implicit null checks.
         final ByteOrder srcOrder = src.order();
@@ -416,7 +439,7 @@ public class ByteBufferUtils {
                 dest,
                 0,
                 (((long)dest.limit())<<3),
-                destLastBitPos,
+                destFirstBitPos,
                 bitSize,
                 srcOrder == ByteOrder.BIG_ENDIAN);
     }

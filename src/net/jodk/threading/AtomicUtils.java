@@ -30,9 +30,8 @@ public class AtomicUtils {
      * and returns this min value.
      * 
      * If the specified AtomicInteger is initially found to hold
-     * a value inferior or equal to the specified value, this method
-     * just returns the read value and only has volatile read semantics,
-     * else, it has volatile read and write semantics.
+     * a value inferior or equal to the specified value, this method has
+     * volatile read semantics, else, it has volatile read and write semantics.
      * 
      * @param atomic An AtomicInteger.
      * @param value A value.
@@ -52,14 +51,39 @@ public class AtomicUtils {
     }
     
     /**
+     * Atomically ensures that the specified AtomicLong holds
+     * min(its current value, specified value), using possibly multiple CASes,
+     * and returns this min value.
+     * 
+     * If the specified AtomicLong is initially found to hold
+     * a value inferior or equal to the specified value, this method has
+     * volatile read semantics, else, it has volatile read and write semantics.
+     * 
+     * @param atomic An AtomicLong.
+     * @param value A value.
+     * @return min(atomic, value).
+     */
+    public static long ensureMinAndGet(AtomicLong atomic, long value) {
+        long tmpLastReturned;
+        do {
+            tmpLastReturned = atomic.get();
+            if (tmpLastReturned <= value) {
+                return tmpLastReturned;
+            }
+            // Here, value < tmpLastReturned,
+            // so we will try to set it as new value.
+        } while (!atomic.compareAndSet(tmpLastReturned, value));
+        return value;
+    }
+    
+    /**
      * Atomically ensures that the specified AtomicInteger holds
      * max(its current value, specified value), using possibly multiple CASes,
      * and returns this max value.
      * 
      * If the specified AtomicInteger is initially found to hold
-     * a value superior or equal to the specified value, this method
-     * just returns the read value and only has volatile read semantics,
-     * else, it has volatile read and write semantics.
+     * a value superior or equal to the specified value, this method has
+     * volatile read semantics, else, it has volatile read and write semantics.
      * 
      * @param atomic An AtomicInteger.
      * @param value A value.
@@ -80,40 +104,12 @@ public class AtomicUtils {
     
     /**
      * Atomically ensures that the specified AtomicLong holds
-     * min(its current value, specified value), using possibly multiple CASes,
-     * and returns this min value.
-     * 
-     * If the specified AtomicLong is initially found to hold
-     * a value inferior or equal to the specified value, this method
-     * just returns the read value and only has volatile read semantics,
-     * else, it has volatile read and write semantics.
-     * 
-     * @param atomic An AtomicLong.
-     * @param value A value.
-     * @return min(atomic, value).
-     */
-    public static long ensureMinAndGet(AtomicLong atomic, long value) {
-        long tmpLastReturned;
-        do {
-            tmpLastReturned = atomic.get();
-            if (tmpLastReturned <= value) {
-                return tmpLastReturned;
-            }
-            // Here, value < tmpLastReturned,
-            // so we will try to set it as new value.
-        } while (!atomic.compareAndSet(tmpLastReturned, value));
-        return value;
-    }
-    
-    /**
-     * Atomically ensures that the specified AtomicLong holds
      * max(its current value, specified value), using possibly multiple CASes,
      * and returns this max value.
      * 
      * If the specified AtomicLong is initially found to hold
-     * a value superior or equal to the specified value, this method
-     * just returns the read value and only has volatile read semantics,
-     * else, it has volatile read and write semantics.
+     * a value superior or equal to the specified value, this method has
+     * volatile read semantics, else, it has volatile read and write semantics.
      * 
      * @param atomic An AtomicLong.
      * @param value A value.
@@ -130,5 +126,113 @@ public class AtomicUtils {
             // so we will try to set it as new value.
         } while (!atomic.compareAndSet(tmpLastReturned, value));
         return value;
+    }
+    
+    /*
+     * 
+     */
+    
+    /**
+     * Atomically ensures that the specified AtomicInteger holds
+     * min(its current value, specified value), using possibly multiple CASes,
+     * and returns value read before CAS or before finding out no CAS is needed.
+     * 
+     * If the specified AtomicInteger is initially found to hold
+     * a value inferior or equal to the specified value, this method has
+     * volatile read semantics, else, it has volatile read and write semantics.
+     * 
+     * @param atomic An AtomicInteger.
+     * @param value A value.
+     * @return value read before CAS or before finding out no CAS is needed.
+     */
+    public static int getAndEnsureMin(AtomicInteger atomic, int value) {
+        int tmpLastReturned;
+        do {
+            tmpLastReturned = atomic.get();
+            if (tmpLastReturned <= value) {
+                return tmpLastReturned;
+            }
+            // Here, value < tmpLastReturned,
+            // so we will try to set it as new value.
+        } while (!atomic.compareAndSet(tmpLastReturned, value));
+        return tmpLastReturned;
+    }
+
+    /**
+     * Atomically ensures that the specified AtomicLong holds
+     * min(its current value, specified value), using possibly multiple CASes,
+     * and returns value read before CAS or before finding out no CAS is needed.
+     * 
+     * If the specified AtomicLong is initially found to hold
+     * a value inferior or equal to the specified value, this method has
+     * volatile read semantics, else, it has volatile read and write semantics.
+     * 
+     * @param atomic An AtomicLong.
+     * @param value A value.
+     * @return value read before CAS or before finding out no CAS is needed.
+     */
+    public static long getAndEnsureMin(AtomicLong atomic, long value) {
+        long tmpLastReturned;
+        do {
+            tmpLastReturned = atomic.get();
+            if (tmpLastReturned <= value) {
+                return tmpLastReturned;
+            }
+            // Here, value < tmpLastReturned,
+            // so we will try to set it as new value.
+        } while (!atomic.compareAndSet(tmpLastReturned, value));
+        return tmpLastReturned;
+    }
+    
+    /**
+     * Atomically ensures that the specified AtomicInteger holds
+     * max(its current value, specified value), using possibly multiple CASes,
+     * and returns value read before CAS or before finding out no CAS is needed.
+     * 
+     * If the specified AtomicInteger is initially found to hold
+     * a value superior or equal to the specified value, this method has
+     * volatile read semantics, else, it has volatile read and write semantics.
+     * 
+     * @param atomic An AtomicInteger.
+     * @param value A value.
+     * @return value read before CAS or before finding out no CAS is needed.
+     */
+    public static int getAndEnsureMax(AtomicInteger atomic, int value) {
+        int tmpLastReturned;
+        do {
+            tmpLastReturned = atomic.get();
+            if (tmpLastReturned >= value) {
+                return tmpLastReturned;
+            }
+            // Here, value > tmpLastReturned,
+            // so we will try to set it as new value.
+        } while (!atomic.compareAndSet(tmpLastReturned, value));
+        return tmpLastReturned;
+    }
+    
+    /**
+     * Atomically ensures that the specified AtomicLong holds
+     * max(its current value, specified value), using possibly multiple CASes,
+     * and returns value read before CAS or before finding out no CAS is needed.
+     * 
+     * If the specified AtomicLong is initially found to hold
+     * a value superior or equal to the specified value, this method has
+     * volatile read semantics, else, it has volatile read and write semantics.
+     * 
+     * @param atomic An AtomicLong.
+     * @param value A value.
+     * @return value read before CAS or before finding out no CAS is needed.
+     */
+    public static long getAndEnsureMax(AtomicLong atomic, long value) {
+        long tmpLastReturned;
+        do {
+            tmpLastReturned = atomic.get();
+            if (tmpLastReturned >= value) {
+                return tmpLastReturned;
+            }
+            // Here, value > tmpLastReturned,
+            // so we will try to set it as new value.
+        } while (!atomic.compareAndSet(tmpLastReturned, value));
+        return tmpLastReturned;
     }
 }

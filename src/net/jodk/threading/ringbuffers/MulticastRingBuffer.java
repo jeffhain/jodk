@@ -1230,7 +1230,7 @@ public class MulticastRingBuffer extends AbstractRingBuffer {
      * @param singlePublisher True if single publisher, false otherwise.
      * @param singleSubscriber True if single subscriber, false otherwise.
      * @param readLazySets If true, lazySet is used to indicate that a sequence has been read,
-     *        which implies that readWaitCondilock  must handle possible delays between the
+     *        which implies that readWaitCondilock must handle possible delays between the
      *        lazySet and its visibility of the new volatile value, which typically implies
      *        waking-up from wait from time to time to re-check the value.
      * @param writeLazySets Same as for readLazySets, but when indicating that a sequence

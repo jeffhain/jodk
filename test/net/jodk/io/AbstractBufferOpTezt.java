@@ -154,6 +154,10 @@ public abstract class AbstractBufferOpTezt extends TestCase {
      * 
      */
 
+    interface InterfaceCopyBytesOperation<T extends InterfaceTab> {
+        public void copyBytes(T src, int srcFirstByteIndex, T dest, int destFirstByteIndex, int byteSize);
+    }
+
     interface InterfaceCopyBitsOperation<T extends InterfaceTab> {
         public void copyBits(T src, long srcFirstBitPos, T dest, long destFirstBitPos, long bitSize);
     }
@@ -727,6 +731,227 @@ public abstract class AbstractBufferOpTezt extends TestCase {
      * 
      */
 
+    public void test_copyBytesOperation(InterfaceCopyBytesOperation op) {
+
+        /*
+         * nulls
+         */
+
+        for (InterfaceTab src : newTabs(0,newTabs(1,null))) {
+            for (InterfaceTab dest : newTabs(0,newTabs(1,null))) {
+                for (ByteOrder srcOrder : new ByteOrder[]{null,ByteOrder.BIG_ENDIAN,ByteOrder.LITTLE_ENDIAN}) {
+                    for (ByteOrder destOrder : new ByteOrder[]{null,ByteOrder.BIG_ENDIAN,ByteOrder.LITTLE_ENDIAN}) {
+                        if (src != null) {
+                            src.order(srcOrder);
+                        }
+                        if (dest != null) {
+                            dest.order(destOrder);
+                        }
+                        if ((src == null) || (dest == null) || (srcOrder == null) || (destOrder == null)) {
+                            try {
+                                op.copyBytes(src, 0, dest, 0, 0);
+                                assertTrue(false);
+                            } catch (NullPointerException e) {
+                                // ok
+                            }
+                            // Even with weird indexes and size.
+                            // Exception for nulls has priority over
+                            // exceptions for bit size and bit range.
+                            try {
+                                op.copyBytes(src, -1, dest, -1, -1);
+                                assertTrue(false);
+                            } catch (NullPointerException e) {
+                                // ok
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        /*
+         * bad bit size and bit range, and tab properties not allowing copy
+         */
+
+        for (int srcLength : new int[]{0,1,2}) {
+            for (int destLength : new int[]{0,1,2}) {
+                for (InterfaceTab src : newTabs(srcLength)) {
+                    for (InterfaceTab dest : newTabs(destLength)) {
+                        for (boolean srcTooLow : new boolean[]{false,true}) {
+                            for (boolean destTooLow : new boolean[]{false,true}) {
+                                for (boolean byteSizeTooHigh : new boolean[]{false,true}) {
+                                    final int srcFirstByteIndex = srcTooLow ? -1 : 0;
+                                    final int destFirstByteIndex = destTooLow ? -1 : 0;
+
+                                    // Making sure orders are identical.
+                                    ByteOrder order = randomOrder();
+                                    src.order(order);
+                                    dest.order(order);
+
+                                    final int byteSize = (byteSizeTooHigh ? 1 : 0)
+                                            + Math.min(
+                                                    srcLength - srcFirstByteIndex,
+                                                    destLength - destFirstByteIndex);
+                                    if ((!(dest.isReadOnly() && (byteSize > 0))) // Would throw ReadOnlyBufferException.
+                                            && (srcTooLow || destTooLow || byteSizeTooHigh)) {
+                                        // Bad byte size, bad byte range.
+                                        // Exception for bad byte size (on its own),
+                                        // has priority over exception on byte range.
+                                        try {
+                                            op.copyBytes(src, srcFirstByteIndex, dest, destFirstByteIndex, -1);
+                                            assertTrue(false);
+                                        } catch (IllegalArgumentException e) {
+                                            // ok
+                                        }
+                                        // Bad byte range.
+                                        try {
+                                            op.copyBytes(src, srcFirstByteIndex, dest, destFirstByteIndex, byteSize);
+                                            assertTrue(false);
+                                        } catch (IndexOutOfBoundsException e) {
+                                            // ok
+                                        }
+                                    } else {
+                                        // Bad byte size.
+                                        try {
+                                            op.copyBytes(src, srcFirstByteIndex, dest, destFirstByteIndex, -1);
+                                            assertTrue(false);
+                                        } catch (IllegalArgumentException e) {
+                                            // ok
+                                        }
+                                        // Good byte size and byte range.
+                                        copyWithExceptionTest(op, src, srcFirstByteIndex, dest, destFirstByteIndex, byteSize);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        /*
+         * different byte orders
+         */
+
+        for (InterfaceTab[] pair : newTabPairs(1,1)) {
+            final InterfaceTab src = pair[0];
+            final InterfaceTab dest = pair[1];
+            if (dest.isReadOnly()) {
+                continue;
+            }
+            if (src.order() != dest.order()) {
+                try {
+                    op.copyBytes(src, 0, dest, 0, 1);
+                    assertTrue(false);
+                } catch (IllegalArgumentException e) {
+                    // ok
+                }
+            }
+        }
+
+        /*
+         * random
+         */
+
+        final ArrayList<ByteOrder> orders = new ArrayList<ByteOrder>();
+        orders.add(ByteOrder.BIG_ENDIAN);
+        orders.add(ByteOrder.LITTLE_ENDIAN);
+
+        final boolean smallLengths = false;
+
+        final int lengthLo = smallLengths ? 2 : 10;
+        // Enough for 3 longs, in case implementation uses longs.
+        final int lengthHi = smallLengths ? 8 : 64 * 3;
+
+        for (int k=0;k<NBR_OF_TAB_COPY_LIMITS;k++) {
+            // Sometimes small, sometimes large.
+            final int srcLimit = 1 + random.nextInt(lengthLo) + (random.nextBoolean() ? random.nextInt(lengthHi) : 0);
+            final int destLimit = 1 + random.nextInt(lengthLo) + (random.nextBoolean() ? random.nextInt(lengthHi) : 0);
+            
+            for (InterfaceTab[] pair : newTabPairs(srcLimit,destLimit)) {
+                final InterfaceTab src = pair[0];
+                final InterfaceTab dest = pair[1];
+                if (dest.isReadOnly()) {
+                    // Tested above; would just slow things down.
+                    continue;
+                }
+                if ((src.limit() == 0) || (dest.limit() == 0)) {
+                    // Can't do much.
+                    continue;
+                }
+
+                final boolean shared = (pair.length == 3);
+                
+                // Erasing risk: considering that copy is done by iterating in a direction such
+                // as if src and dest are identical, data to copy is not erased with copied data.
+                final boolean copyErasingRisk = shared && (!(src.hasArrayWritableOrNot() && dest.hasArrayWritableOrNot()));
+
+                /*
+                 * src
+                 */
+                final int srcByteLength = src.limit();
+                final int srcFirstByteIndex = random.nextInt(srcByteLength);
+                /*
+                 * dest
+                 */
+                final int destByteLength = dest.limit();
+                final int destFirstByteIndex = random.nextInt(destByteLength);
+                /*
+                 * byte size
+                 */
+                final int maxByteSize = Math.min(srcByteLength - srcFirstByteIndex, destByteLength - destFirstByteIndex);
+                final int byteSize = 1 + random.nextInt(maxByteSize);
+                /*
+                 * order
+                 */
+                final ByteOrder order = randomOrder();
+                /*
+                 * Need to set order before converting buffers to strings.
+                 */
+                src.order(order);
+                dest.order(order);
+                /*
+                 * computing expected result
+                 */
+                final String srcBits = toBits(src, order);
+                final String destBits = toBits(dest, order);
+                /*
+                 * copy
+                 */
+                if (!copyWithExceptionTest(op, src, srcFirstByteIndex, dest, destFirstByteIndex, byteSize)) {
+                    continue;
+                }
+                /*
+                 * checks
+                 */
+                if (!shared) {
+                    // src must not have been modified
+                    assertEquals(toBits(src, order), srcBits);
+                }
+                if (copyErasingRisk) {
+                    // Copy might have had trouble, but that's in the spec.
+                } else {
+                    final String expectedBits = expectedBits(srcBits, srcFirstByteIndex * 8, destBits, destFirstByteIndex * 8, byteSize * 8);
+                    final String resultBits = toBits(dest, order);
+                    final boolean ok = resultBits.equals(expectedBits);
+                    if (!ok) {
+                        System.out.println("shared             = "+shared);
+                        System.out.println("order              = "+order);
+                        System.out.println("srcFirstByteIndex  = "+srcFirstByteIndex);
+                        System.out.println("destFirstByteIndex = "+destFirstByteIndex);
+                        System.out.println("byteSize           = "+byteSize);
+                        System.out.println("srcBits      = "+srcBits);
+                        System.out.println("destBits     = "+destBits);
+                        System.out.println("expectedBits = "+expectedBits);
+                        System.out.println("resultBits   = "+resultBits);
+                        System.out.flush();
+                    }
+                    assertTrue(ok);
+                }
+            }
+        }
+    }
+
     public void test_copyBitsOperation(InterfaceCopyBitsOperation op) {
 
         /*
@@ -1245,6 +1470,33 @@ public abstract class AbstractBufferOpTezt extends TestCase {
             } else {
                 assertTrue(maxBitSize <= 56);
             }
+        }
+    }
+
+    /**
+     * Tests that exceptions are properly throw if copy can't be done (besides valid bit ranges).
+     * 
+     * @return True if could copy, false if a handled exception has been thrown.
+     */
+    private static boolean copyWithExceptionTest(
+            InterfaceCopyBytesOperation op,
+            InterfaceTab src,
+            int srcFirstByteIndex,
+            InterfaceTab dest,
+            int destFirstByteIndex,
+            int byteSize) {
+        if ((byteSize > 0)
+                && dest.isReadOnly()) {
+            try {
+                op.copyBytes(src, srcFirstByteIndex, dest, destFirstByteIndex, byteSize);
+                assertTrue(false);
+            } catch (ReadOnlyBufferException e) {
+                // ok
+            }
+            return false;
+        } else {
+            op.copyBytes(src, srcFirstByteIndex, dest, destFirstByteIndex, byteSize);
+            return true;
         }
     }
 
