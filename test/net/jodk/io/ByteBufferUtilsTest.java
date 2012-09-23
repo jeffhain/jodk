@@ -334,7 +334,18 @@ public class ByteBufferUtilsTest extends AbstractBufferOpTezt {
     /*
      * 
      */
-    
+
+    public void test_bufferCopy_ByteBuffer_int_ByteBuffer_int_int() {
+        test_copyBytesOperation(new InterfaceCopyBytesOperation<MyTab>() {
+            @Override
+            public void copyBytes(MyTab src, int srcFirstByteIndex, MyTab dest, int destFirstByteIndex, int byteSize) {
+                src.myBufferOrder(src.order);
+                dest.myBufferOrder(dest.order);
+                ByteBufferUtils.bufferCopy(src.buffer, srcFirstByteIndex, dest.buffer, destFirstByteIndex, byteSize);
+            }
+        });
+    }
+
     public void test_bufferCopyBits_ByteBuffer_long_ByteBuffer_long_long() {
         test_copyBitsOperation(new InterfaceCopyBitsOperation<MyTab>() {
             @Override

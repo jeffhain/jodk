@@ -15,6 +15,8 @@
  */
 package net.jodk.test;
 
+import java.io.File;
+import java.io.IOException;
 import java.lang.management.ManagementFactory;
 
 import net.jodk.lang.LangUtils;
@@ -88,6 +90,20 @@ public class TestUtils {
         System.out.flush();
     }
 
+    /**
+     * @return A new temp file, configured to be deleted on exit
+     *         (not deleted if not properly closed or JVM crash).
+     */
+    public static File newTempFile() {
+        try {
+            File file = File.createTempFile("jodk_test_", ".tmp");
+            file.deleteOnExit();
+            return file;
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+    
     //--------------------------------------------------------------------------
     // PRIVATE METHODS
     //--------------------------------------------------------------------------

@@ -2101,6 +2101,35 @@ public class DataBuffer implements Comparable<DataBuffer> {
      */
 
     /**
+     * Equivalent to calling bufferCopyBits(...) version with "* 8L"
+     * applied on indexes and size arguments.
+     * 
+     * @param src The source buffer.
+     * @param srcFirstByteIndex Starting byte index in the source buffer.
+     * @param dest The destination buffer.
+     * @param destFirstByteIndex Starting byte index in the destination buffer.
+     * @param byteSize The number of bytes to copy.
+     * @throws NullPointerException if either src or dest is null.
+     * @throws ReadOnlyBufferException if dest is read-only and bitSize > 0.
+     * @throws IllegalArgumentException if src and dest don't have the same byte order
+     *         or if bitSize < 0.
+     * @throws IndexOutOfBoundsException if the specified bits are out of range.
+     */
+    public static void bufferCopy(
+            DataBuffer src,
+            int srcFirstByteIndex,
+            DataBuffer dest,
+            int destFirstByteIndex,
+            int byteSize) {
+        bufferCopyBits(
+                src,
+                (((long)srcFirstByteIndex)<<3),
+                dest,
+                (((long)destFirstByteIndex)<<3),
+                (((long)byteSize)<<3));
+    }
+    
+    /**
      * If src has an array and dest is direct, and you are allowed to change
      * its ByteBuffer's position, it might be way more efficient to use dest.byteBuffer().put(byte[],int,int),
      * which copies data with Unsafe by chunks of 1Mo or so.
@@ -2112,6 +2141,11 @@ public class DataBuffer implements Comparable<DataBuffer> {
      * takes care to copy such as if the array is shared, data to copy is not
      * erased with copied data.
      * 
+     * @param src The source buffer.
+     * @param srcFirstBitPos Starting bit position in the source buffer.
+     * @param dest The destination buffer.
+     * @param destFirstBitPos Starting bit position in the destination buffer.
+     * @param bitSize The number of bits to copy.
      * @throws NullPointerException if either src or dest is null.
      * @throws ReadOnlyBufferException if dest is read-only and bitSize > 0.
      * @throws IllegalArgumentException if src and dest don't have the same byte order

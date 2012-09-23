@@ -36,7 +36,7 @@ import net.jodk.lang.LangUtils;
  * a volatile read).
  * 
  * Configuration is public and non-final, for setting before or while debugging,
- * static, for simplicity, non-volatile, for performances reasons, so its
+ * static, for simplicity, and non-volatile, for performances reasons, so its
  * modifications are typically not immediately visible across threads.
  * 
  * This logger is especially useful to debug concurrent treatments,

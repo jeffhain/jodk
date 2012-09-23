@@ -31,10 +31,21 @@ public class AtomicUtilsTest extends TestCase {
 
         assertEquals(0,AtomicUtils.ensureMinAndGet(atomic, 0));
         assertEquals(0,atomic.get());
-        assertEquals(0,AtomicUtils.ensureMinAndGet(atomic, 1));
-        assertEquals(0,atomic.get());
         assertEquals(-1,AtomicUtils.ensureMinAndGet(atomic, -1));
         assertEquals(-1,atomic.get());
+        assertEquals(-1,AtomicUtils.ensureMinAndGet(atomic, 1));
+        assertEquals(-1,atomic.get());
+    }
+
+    public void test_ensureMinAndGet_AtomicLong_long() {
+        final AtomicLong atomic = new AtomicLong();
+
+        assertEquals(0L,AtomicUtils.ensureMinAndGet(atomic, 0L));
+        assertEquals(0L,atomic.get());
+        assertEquals(-1L,AtomicUtils.ensureMinAndGet(atomic, -1L));
+        assertEquals(-1L,atomic.get());
+        assertEquals(-1L,AtomicUtils.ensureMinAndGet(atomic, 1L));
+        assertEquals(-1L,atomic.get());
     }
 
     public void test_ensureMaxAndGet_AtomicInteger_int() {
@@ -48,17 +59,6 @@ public class AtomicUtilsTest extends TestCase {
         assertEquals(1,atomic.get());
     }
 
-    public void test_ensureMinAndGet_AtomicLong_long() {
-        final AtomicLong atomic = new AtomicLong();
-
-        assertEquals(0L,AtomicUtils.ensureMinAndGet(atomic, 0L));
-        assertEquals(0L,atomic.get());
-        assertEquals(0L,AtomicUtils.ensureMinAndGet(atomic, 1L));
-        assertEquals(0L,atomic.get());
-        assertEquals(-1L,AtomicUtils.ensureMinAndGet(atomic, -1L));
-        assertEquals(-1L,atomic.get());
-    }
-
     public void test_ensureMaxAndGet_AtomicLong_long() {
         final AtomicLong atomic = new AtomicLong();
 
@@ -67,6 +67,54 @@ public class AtomicUtilsTest extends TestCase {
         assertEquals(1L,AtomicUtils.ensureMaxAndGet(atomic, 1L));
         assertEquals(1L,atomic.get());
         assertEquals(1L,AtomicUtils.ensureMaxAndGet(atomic, -1L));
+        assertEquals(1L,atomic.get());
+    }
+    
+    /*
+     * 
+     */
+
+    public void test_getAndEnsureMin_AtomicInteger_int() {
+        final AtomicInteger atomic = new AtomicInteger();
+
+        assertEquals(0,AtomicUtils.getAndEnsureMin(atomic, 0));
+        assertEquals(0,atomic.get());
+        assertEquals(0,AtomicUtils.getAndEnsureMin(atomic, -1));
+        assertEquals(-1,atomic.get());
+        assertEquals(-1,AtomicUtils.getAndEnsureMin(atomic, 1));
+        assertEquals(-1,atomic.get());
+    }
+
+    public void test_getAndEnsureMin_AtomicLong_long() {
+        final AtomicLong atomic = new AtomicLong();
+
+        assertEquals(0L,AtomicUtils.getAndEnsureMin(atomic, 0L));
+        assertEquals(0L,atomic.get());
+        assertEquals(0L,AtomicUtils.getAndEnsureMin(atomic, -1L));
+        assertEquals(-1L,atomic.get());
+        assertEquals(-1L,AtomicUtils.getAndEnsureMin(atomic, 1L));
+        assertEquals(-1L,atomic.get());
+    }
+
+    public void test_getAndEnsureMax_AtomicInteger_int() {
+        final AtomicInteger atomic = new AtomicInteger();
+
+        assertEquals(0,AtomicUtils.getAndEnsureMax(atomic, 0));
+        assertEquals(0,atomic.get());
+        assertEquals(0,AtomicUtils.getAndEnsureMax(atomic, 1));
+        assertEquals(1,atomic.get());
+        assertEquals(1,AtomicUtils.getAndEnsureMax(atomic, -1));
+        assertEquals(1,atomic.get());
+    }
+
+    public void test_getAndEnsureMax_AtomicLong_long() {
+        final AtomicLong atomic = new AtomicLong();
+
+        assertEquals(0L,AtomicUtils.getAndEnsureMax(atomic, 0L));
+        assertEquals(0L,atomic.get());
+        assertEquals(0L,AtomicUtils.getAndEnsureMax(atomic, 1L));
+        assertEquals(1L,atomic.get());
+        assertEquals(1L,AtomicUtils.getAndEnsureMax(atomic, -1L));
         assertEquals(1L,atomic.get());
     }
 }

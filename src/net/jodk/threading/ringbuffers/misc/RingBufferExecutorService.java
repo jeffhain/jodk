@@ -135,6 +135,10 @@ public class RingBufferExecutorService extends AbstractExecutorService {
         this.rejectedExecutionHandler = rejectedExecutionHandler;
     }
 
+    /*
+     * 
+     */
+    
     /**
      * @param runnable Runnable to run.
      * @return True if execution has been planned (but rejection
@@ -236,16 +240,19 @@ public class RingBufferExecutorService extends AbstractExecutorService {
     public List<Runnable> shutdownNow() {
         final long[] abortedSequencesRanges = this.ringBufferService.shutdownNow(TRY_INTERRUPT_ON_SHUTDOWN);
         if (abortedSequencesRanges != null) {
+            final int nbrOfRanges = RingBuffersUtils.computeNbrOfRanges(abortedSequencesRanges);
             final int nbrOfRunnables = NumbersUtils.asInt(RingBuffersUtils.computeNbrOfSequences(abortedSequencesRanges));
             final ArrayList<Runnable> list = new ArrayList<Runnable>(nbrOfRunnables);
-            final long min = abortedSequencesRanges[0];
-            final long max = abortedSequencesRanges[1];
-            for (long seq=min;seq<=max;seq++) {
-                final int index = this.ringBufferService.sequenceToIndex(seq);
-                final Runnable runnable = this.eventByIndex[index];
-                this.eventByIndex[index] = null;
-                if(ASSERTIONS)assert(runnable != null);
-                list.add(runnable);
+            for (int i=0;i<nbrOfRanges;i++) {
+                final long min = abortedSequencesRanges[2*i];
+                final long max = abortedSequencesRanges[2*i+1];
+                for (long seq=min;seq<=max;seq++) {
+                    final int index = this.ringBufferService.sequenceToIndex(seq);
+                    final Runnable runnable = this.eventByIndex[index];
+                    this.eventByIndex[index] = null;
+                    if(ASSERTIONS)assert(runnable != null);
+                    list.add(runnable);
+                }
             }
             return list;
         } else {

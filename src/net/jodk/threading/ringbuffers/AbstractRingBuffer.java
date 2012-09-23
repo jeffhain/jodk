@@ -187,15 +187,6 @@ abstract class AbstractRingBuffer implements InterfaceRingBuffer {
          */
         boolean needToCallOnBatchEnd;
         /**
-         * For both multicast and unicast workers, this value is read at least
-         * once in callImpl() method, before any use of a non-volatile field,
-         * and also set at least once in callImpl() method, after any set of a
-         * non-volatile field. This ensures fields consistency in case of successive
-         * calls to callImpl() method by different threads and without synchronization.
-         * This must be done for non-service workers, but the corresponding overhead
-         * shouldn't hurt so much that we would want not to do it for service workers,
-         * since they are only run once, so it is done for both types of workers.
-         * 
          * For multicast workers, this value is regularly updated, even though
          * some lag is allowed, for quick batches.
          * 
@@ -305,8 +296,8 @@ abstract class AbstractRingBuffer implements InterfaceRingBuffer {
             this.maxPassedSequenceLocal = maxPassedSequence;
         }
         /**
-         * Only valid in callImpl() method or sub-methods,
-         * and for local worker.
+         * Only valid in runWorkerImplAfterStateAndMPSUpdates() method or
+         * sub-methods, and for local worker.
          */
         public final long getMaxPassedSequenceLocal() {
             return this.maxPassedSequenceLocal;

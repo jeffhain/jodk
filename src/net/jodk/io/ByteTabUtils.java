@@ -526,7 +526,7 @@ public class ByteTabUtils {
     static void putIntAtBit_bitSizeChecked(BaseBTHelper helper, Object tab, int offset, int limit, long firstBitPos, int value, int bitSize, boolean bigEndian) {
         helper.checkLimitBitPosBitSizeIfNeeded(limit, firstBitPos, bitSize);
 
-        if (((((int)firstBitPos)&7)|(bitSize&7)) == 0) {
+        if (((((int)firstBitPos)|bitSize)&7) == 0) {
             final int firstByteIndex = (int)(firstBitPos>>3);
             putIntAt_noCheck(helper, tab, offset+firstByteIndex, value, bitSize, bigEndian);
         } else {
@@ -587,7 +587,7 @@ public class ByteTabUtils {
     static void putLongAtBit_bitSizeChecked(BaseBTHelper helper, Object tab, int offset, int limit, long firstBitPos, long value, int bitSize, boolean bigEndian) {
         helper.checkLimitBitPosBitSizeIfNeeded(limit, firstBitPos, bitSize);
 
-        if (((((int)firstBitPos)&7)|(bitSize&7)) == 0) {
+        if (((((int)firstBitPos)|bitSize)&7) == 0) {
             final int firstByteIndex = (int)(firstBitPos>>3);
             putLongAt_noCheck(helper, tab, offset+firstByteIndex, value, bitSize, bigEndian);
         } else {
@@ -661,7 +661,7 @@ public class ByteTabUtils {
         helper.checkLimitBitPosBitSizeIfNeeded(limit, firstBitPos, bitSize);
 
         int result;
-        if (((((int)firstBitPos)&7)|(bitSize&7)) == 0) {
+        if (((((int)firstBitPos)|bitSize)&7) == 0) {
             final int firstByteIndex = (int)(firstBitPos>>3);
             result = getIntSignedAt_noCheck(helper, tab, offset+firstByteIndex, bitSize, bigEndian);
         } else {
@@ -728,7 +728,7 @@ public class ByteTabUtils {
         helper.checkLimitBitPosBitSizeIfNeeded(limit, firstBitPos, bitSize);
 
         long result;
-        if (((((int)firstBitPos)&7)|(bitSize&7)) == 0) {
+        if (((((int)firstBitPos)|bitSize)&7) == 0) {
             final int firstByteIndex = (int)(firstBitPos>>3);
             result = getLongSignedAt_noCheck(helper, tab, offset+firstByteIndex, bitSize, bigEndian);
         } else {
@@ -1396,7 +1396,7 @@ public class ByteTabUtils {
                 destHelper.put8Bits(dest,destFirstByteIndex + i, srcHelper.get8Bits(src,srcFirstByteIndex + i));
             }
         } else {
-            // First to last
+            // first to last
             int i=0;
             if (bigEndian) {
                 while (i < byteSize - 7) {

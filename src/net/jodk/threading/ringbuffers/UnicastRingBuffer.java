@@ -1378,13 +1378,6 @@ public class UnicastRingBuffer extends AbstractRingBuffer {
         }
         @Override
         public final long claimSequence() {
-            /*
-             * We don't claim a sequence from sequencer, and then wait for its
-             * entry to reach it and be writable (as done for monotonic publishing),
-             * for it could make publishers try to claim wrapping sequences,
-             * while non-wrapping sequences could be available, which can
-             * hurt performances a lot.
-             */
             return claimSequence_locals_static(this, this.getLocals());
         }
         @Override
@@ -1595,6 +1588,13 @@ public class UnicastRingBuffer extends AbstractRingBuffer {
         private static long claimSequence_locals_static(
                 MyAbstractPublishPort_NM port,
                 MyPublishPortLocals locals) {
+            /*
+             * We don't claim a sequence from sequencer, and then wait for its
+             * entry to reach it and be writable (as done for monotonic publishing),
+             * for it could make publishers try to claim wrapping sequences,
+             * while non-wrapping sequences could be available, which can
+             * hurt performances a lot.
+             */
             final LocalData localData = locals.sequencerLocals;
             final MyRBClaimWaitStopBC bc = locals.claimWaitStopBC;
             final LongCounter pubSeqNM = port.pubSeqNM;
@@ -1753,7 +1753,7 @@ public class UnicastRingBuffer extends AbstractRingBuffer {
      *        (like twice) than actual parallelism.
      * @param singleSubscriber True if single subscriber, false otherwise.
      * @param readLazySets If true, lazySet is used to indicate that a sequence has been read,
-     *        which implies that readWaitCondilock  must handle possible delays between the
+     *        which implies that readWaitCondilock must handle possible delays between the
      *        lazySet and its visibility of the new volatile value, which typically implies
      *        waking-up from wait from time to time to re-check the value.
      * @param writeLazySets Same as for readLazySets, but when indicating that a sequence

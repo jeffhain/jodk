@@ -46,6 +46,19 @@ alternatives to those of JDK.
 -- VERSIONS
 --------------------------------------------------------------------------------
 
+- V1.2:
+  - BUG FIX: RingBufferExecutorService.shutdownNow() wasn't properly returning
+    Runnables rejected on shut down, when they were not contiguous in the array
+    (nothing subtle, just sloppy sequential code).
+  - Typos.
+  - Added AtomicUtils.getAndEnsureMin(...) and AtomicUtils.getAndEnsureMax(...).
+  - Added bytewise buffer copy methods: ByteBufferUtils.bufferCopy(...) and
+    DataBuffer.bufferCopy(...).
+  - In ByteBufferUtils, moved some ByteBuffer.isReadOnly() calls that could be
+    avoided for non-read-only case.
+  - In ByteTabUtils, replaced "(((((int)firstBitPos)&7)|(bitSize&7)) == 0)"
+    with "(((((int)firstBitPos)|bitSize)&7) == 0)".
+
 - V1.1:
   - Reduced the visibility of many fields, methods and inner classes
     (mainly from protected to package-private).
@@ -101,7 +114,7 @@ alternatives to those of JDK.
   - Typos.
   - Corrected AbstractRingBuffer Javadoc: if multicast, worker's max
     passed sequence is set with lazySet only if readLazySets is true.
-  - In RingBufferExecutorServicePerf, indicated that when using
+  - In RingBufferExecutorServicesPerf, indicated that when using
     ForkJoinPool called from itself, done publisher threads will
     contribute as workers, which biases the bench.
   - Some DataBuffer tests were failing on some architectures (Bug ID: 4660849).
@@ -112,7 +125,7 @@ alternatives to those of JDK.
     no 100-batch publishing).
   - Corrected bench for FastMath.atan2(...), which was not using the
     expected number of rounds.
-  - Added benches for condilocks, some more FastMath methods,
+  - Added benches for condilocks, for some FastMath methods,
     and tests for ring buffer based executor services,
     NonNullElseAtomicReference and NullElseAtomicReference.
 
