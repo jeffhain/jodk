@@ -363,70 +363,75 @@ public class ByteBufferUtils {
      * Equivalent to calling bufferCopyBits(...) version with "* 8L"
      * applied on indexes and size arguments.
      * 
+     * You might want to use
+     * ByteCopyUtils.readAllAtAndWriteAllAt(...)
+     * or
+     * ByteCopyUtils.readAtAndWriteAt(...)
+     * methods instead of this one, for they can be much faster due to use of
+     * native copies, and also allow copies between ByteBuffers of different
+     * orders, but they might create garbage, and might not handle some cases
+     * of overlapping src and dst memory.
+     * 
      * @param src The source buffer.
      * @param srcFirstByteIndex Starting byte index in the source buffer.
-     * @param dest The destination buffer.
-     * @param destFirstByteIndex Starting byte index in the destination buffer.
+     * @param dst The destination buffer.
+     * @param dstFirstByteIndex Starting byte index in the destination buffer.
      * @param byteSize The number of bytes to copy.
-     * @throws NullPointerException if either src or dest is null.
-     * @throws ReadOnlyBufferException if dest is read-only and byteSize > 0.
-     * @throws IllegalArgumentException if src and dest don't have the same byte order
+     * @throws NullPointerException if either src or dst is null.
+     * @throws ReadOnlyBufferException if dst is read-only and byteSize > 0.
+     * @throws IllegalArgumentException if src and dst don't have the same byte order
      *         or if byteSize is < 0.
      * @throws IndexOutOfBoundsException if the specified bytes are out of range.
      */
     public static void bufferCopy(
             ByteBuffer src,
             int srcFirstByteIndex,
-            ByteBuffer dest,
-            int destFirstByteIndex,
+            ByteBuffer dst,
+            int dstFirstByteIndex,
             int byteSize) {
         bufferCopyBits(
                 src,
                 (((long)srcFirstByteIndex)<<3),
-                dest,
-                (((long)destFirstByteIndex)<<3),
+                dst,
+                (((long)dstFirstByteIndex)<<3),
                 (((long)byteSize)<<3));
     }
     
     /**
-     * If src has an array and dest is direct, and you are allowed to change
-     * its position, it might be way more efficient to use dest.put(byte[],int,int),
-     * which copies data with Unsafe by chunks of 1Mo or so.
-     * 
      * If some memory is shared by the specified buffers, in a way that can't
      * be known by this treatment, the resulting content of destination buffer
-     * is undefined. If both src and dest are heap buffers, and their backing
+     * is undefined. If both src and dst are heap buffers, and their backing
      * array is accessible, then this treatment knows how they share data, and
      * takes care to copy such as if the array is shared, data to copy is not
      * erased with copied data.
      * 
      * @param src The source buffer.
      * @param srcFirstBitPos Starting bit position in the source buffer.
-     * @param dest The destination buffer.
-     * @param destFirstBitPos Starting bit position in the destination buffer.
+     * @param dst The destination buffer.
+     * @param dstFirstBitPos Starting bit position in the destination buffer.
      * @param bitSize The number of bits to copy.
-     * @throws NullPointerException if either src or dest is null.
-     * @throws ReadOnlyBufferException if dest is read-only and bitSize > 0.
-     * @throws IllegalArgumentException if src and dest don't have the same byte order
+     * @throws NullPointerException if either src or dst is null.
+     * @throws ReadOnlyBufferException if dst is read-only and bitSize > 0.
+     * @throws IllegalArgumentException if src and dst don't have the same byte order
      *         or if bitSize is < 0.
      * @throws IndexOutOfBoundsException if the specified bits are out of range.
      */
     public static void bufferCopyBits(
             ByteBuffer src,
             long srcFirstBitPos,
-            ByteBuffer dest,
-            long destFirstBitPos,
+            ByteBuffer dst,
+            long dstFirstBitPos,
             long bitSize) {
         // Implicit null checks.
         final ByteOrder srcOrder = src.order();
-        final ByteOrder destOrder = dest.order();
+        final ByteOrder dstOrder = dst.order();
         
-        if (dest.isReadOnly() && (bitSize > 0)) {
+        if (dst.isReadOnly() && (bitSize > 0)) {
             throw new ReadOnlyBufferException();
         }
         
-        if (srcOrder != destOrder) {
-            throw new IllegalArgumentException("src order ["+srcOrder+"] != dest order ["+destOrder+"]");
+        if (srcOrder != dstOrder) {
+            throw new IllegalArgumentException("src order ["+srcOrder+"] != dst order ["+dstOrder+"]");
         }
 
         ByteTabUtils.tabCopyBits(
@@ -436,10 +441,10 @@ public class ByteBufferUtils {
                 (((long)src.limit())<<3),
                 srcFirstBitPos,
                 BB_HELPER,
-                dest,
+                dst,
                 0,
-                (((long)dest.limit())<<3),
-                destFirstBitPos,
+                (((long)dst.limit())<<3),
+                dstFirstBitPos,
                 bitSize,
                 srcOrder == ByteOrder.BIG_ENDIAN);
     }
@@ -455,8 +460,8 @@ public class ByteBufferUtils {
      * @param byteSize Number of bytes to put in resulting string.
      * @param radix Radix of digits put in resulting string.
      * @return A string containing the specified data range in the specified format.
-     * @throws IllegalArgumentException if byteSize < 0, or if the specified radix is not in [2,36].
-     * @throws IndexOutOfBoundsException if the specified bytes are out of range.
+     * @throws IllegalArgumentException if the specified radix is not in [2,36].
+     * @throws IndexOutOfBoundsException if byteSize < 0, or the specified bytes are out of range.
      */
     public static String toString(ByteBuffer buffer, int firstByteIndex, int byteSize, int radix) {
         final BaseBTHelper tabHelper;
@@ -482,8 +487,7 @@ public class ByteBufferUtils {
      * @param bigEndian Whether the bits should be displayed in big endian or
      *                  little endian order.
      * @return A string containing the specified data range in the specified format.
-     * @throws IllegalArgumentException if bitSize < 0.
-     * @throws IndexOutOfBoundsException if the specified bits are out of range.
+     * @throws IndexOutOfBoundsException if bitSize < 0, or the specified bits are out of range.
      */
     public static String toStringBits(ByteBuffer buffer, long firstBitPos, long bitSize, boolean bigEndian) {
         final BaseBTHelper tabHelper;

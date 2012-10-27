@@ -37,13 +37,12 @@ public interface InterfaceRingBufferWorkerFactory {
      *        Mostly relevant for multicast ring buffers.
      * @return Worker created for the specified subscriber.
      * @throws IllegalStateException if this factory can't accept
-     *         new subscribers.
+     *         new subscribers, or if this factory can't create more
+     *         workers.
      * @throws IllegalArgumentException if a worker has already been
      *         created by this factory for the specified subscriber, or
      *         if an ahead worker is unknown for this factory, or if ahead
      *         workers are specified and this factory doesn't support them.
-     * @throws UnsupportedOperationException if this factory can't create more
-     *         workers.
      */
     public InterfaceRingBufferWorker newWorker(
             final InterfaceRingBufferSubscriber subscriber,

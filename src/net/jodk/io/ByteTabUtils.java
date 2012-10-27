@@ -108,9 +108,8 @@ public class ByteTabUtils {
      * @param firstBitPos Position of the first bit.
      * @param bitSize Number of bits from the specified first bit.
      * @return Corresponding size in number of bytes.
-     * @throws IllegalArgumentException if bitSize < 0.
-     * @throws IndexOutOfBoundsException if firstBitPos < 0, or if firstBitPos+bitSize overflows,
-     *         or if firstBitPos+bitSize > MAX_BIT_SIZE.
+     * @throws IndexOutOfBoundsException if bitSize < 0, or firstBitPos < 0,
+     *         or firstBitPos+bitSize overflows, or firstBitPos+bitSize > MAX_BIT_SIZE.
      */
     public static int computeByteSize(long firstBitPos, long bitSize) {
         LangUtils.checkBounds(MAX_BIT_SIZE, firstBitPos, bitSize);
@@ -315,9 +314,8 @@ public class ByteTabUtils {
 
     /**
      * @param src Must not be null.
-     * @param dest Must not be null.
-     * @throws IllegalArgumentException if bitSize < 0.
-     * @throws IndexOutOfBoundsException if the specified bits are out of range.
+     * @param dst Must not be null.
+     * @throws IndexOutOfBoundsException if bitSize < 0, or the specified bits are out of range.
      */
     static void tabCopyBits(
             BaseBTHelper srcHelper,
@@ -325,15 +323,15 @@ public class ByteTabUtils {
             int srcOffset,
             long srcBitLimit,
             long srcFirstBitPos,
-            BaseBTHelper destHelper,
-            Object dest,
-            int destOffset,
-            long destBitLimit,
-            long destFirstBitPos,
+            BaseBTHelper dstHelper,
+            Object dst,
+            int dstOffset,
+            long dstBitLimit,
+            long dstFirstBitPos,
             long bitSize,
             boolean bigEndian) {
         LangUtils.checkBounds(srcBitLimit, srcFirstBitPos, bitSize);
-        LangUtils.checkBounds(destBitLimit, destFirstBitPos, bitSize);
+        LangUtils.checkBounds(dstBitLimit, dstFirstBitPos, bitSize);
         if (bitSize == 0) {
             // Just needed to do parameters check.
             return;
@@ -355,13 +353,13 @@ public class ByteTabUtils {
             srcOffset += arrayOffset;
         }
 
-        if ((destHelper != BaseBTHelper.INSTANCE)
-                && destHelper.hasArray(dest)) {
-            final int arrayOffset = destHelper.arrayOffset(dest);
-            dest = destHelper.array(dest);
-            destHelper = BaseBTHelper.INSTANCE;
+        if ((dstHelper != BaseBTHelper.INSTANCE)
+                && dstHelper.hasArray(dst)) {
+            final int arrayOffset = dstHelper.arrayOffset(dst);
+            dst = dstHelper.array(dst);
+            dstHelper = BaseBTHelper.INSTANCE;
             
-            destOffset += arrayOffset;
+            dstOffset += arrayOffset;
         }
         
         /*
@@ -369,20 +367,20 @@ public class ByteTabUtils {
          */
         
         srcFirstBitPos += (((long)srcOffset)<<3);
-        destFirstBitPos += (((long)destOffset)<<3);
+        dstFirstBitPos += (((long)dstOffset)<<3);
         
-        final long srcToDestBitPosShift = destFirstBitPos - srcFirstBitPos;
+        final long srcToDstBitPosShift = dstFirstBitPos - srcFirstBitPos;
 
         // No need to take absolute value before doing "&7",
         // since we compare against zero.
-        if ((srcToDestBitPosShift&7) == 0) {
+        if ((srcToDstBitPosShift&7) == 0) {
             tabCopyBits_noCheck_bitShiftMultipleOf8(
                     srcHelper,
                     src,
                     srcFirstBitPos,
-                    destHelper,
-                    dest,
-                    destFirstBitPos,
+                    dstHelper,
+                    dst,
+                    dstFirstBitPos,
                     bitSize,
                     bigEndian);
         } else {
@@ -390,9 +388,9 @@ public class ByteTabUtils {
                     srcHelper,
                     src,
                     srcFirstBitPos,
-                    destHelper,
-                    dest,
-                    destFirstBitPos,
+                    dstHelper,
+                    dst,
+                    dstFirstBitPos,
                     bitSize,
                     bigEndian);
         }
@@ -405,8 +403,8 @@ public class ByteTabUtils {
     /**
      * toString with digits in big endian order only, but with custom radix.
      * 
-     * @throws IllegalArgumentException if byteSize < 0, or if the specified radix is not in [2,36].
-     * @throws IndexOutOfBoundsException if the specified bytes are out of range.
+     * @throws IllegalArgumentException if the specified radix is not in [2,36].
+     * @throws IndexOutOfBoundsException if byteSize < 0, or the specified bytes are out of range.
      */
     static String toString(BaseBTHelper helper, Object tab, int offset, int limit, int firstByteIndex, int byteSize, int radix) {
         LangUtils.checkBounds(limit, firstByteIndex, byteSize);
@@ -457,8 +455,7 @@ public class ByteTabUtils {
     /**
      * toString with digits in binary format only, to display bits, but with custom endianness.
      * 
-     * @throws IllegalArgumentException if bitSize < 0.
-     * @throws IndexOutOfBoundsException if the specified bits are out of range.
+     * @throws IndexOutOfBoundsException if bitSize < 0, or the specified bits are out of range.
      */
     static String toStringBits(BaseBTHelper helper, Object tab, int offset, long bitLimit, long firstBitPos, long bitSize, boolean bigEndian) {
         LangUtils.checkBounds(bitLimit, firstBitPos, bitSize);
@@ -797,19 +794,19 @@ public class ByteTabUtils {
             BaseBTHelper srcHelper,
             Object src,
             long srcFirstBitPos,
-            BaseBTHelper destHelper,
-            Object dest,
-            long destFirstBitPos,
+            BaseBTHelper dstHelper,
+            Object dst,
+            long dstFirstBitPos,
             long bitSize,
             boolean bigEndian) {
-        if ((src == dest) && (srcFirstBitPos == destFirstBitPos)) {
+        if ((src == dst) && (srcFirstBitPos == dstFirstBitPos)) {
             // Quick case.
             return;
         }
         
         if (bitSize <= 8) {
             int bits = getIntSignedAtBit_noCheck(srcHelper, src, srcFirstBitPos, (int)bitSize, bigEndian);
-            putIntAtBit_noCheck(destHelper, dest, destFirstBitPos, bits, (int)bitSize, bigEndian);
+            putIntAtBit_noCheck(dstHelper, dst, dstFirstBitPos, bits, (int)bitSize, bigEndian);
             return;
         }
 
@@ -817,12 +814,12 @@ public class ByteTabUtils {
         if(ASSERTIONS)assert(bitSize > 6);
 
         final long srcLastBitPos = srcFirstBitPos + bitSize - 1;
-        final long destLastBitPos = destFirstBitPos + bitSize - 1;
+        final long dstLastBitPos = dstFirstBitPos + bitSize - 1;
 
         final int srcFirstByteIndex = (int)(srcFirstBitPos>>3);
-        final int destFirstByteIndex = (int)(destFirstBitPos>>3);
+        final int dstFirstByteIndex = (int)(dstFirstBitPos>>3);
         final int srcLastByteIndex = (int)((srcLastBitPos)>>3);
-        final int destLastByteIndex = (int)((destLastBitPos)>>3);
+        final int dstLastByteIndex = (int)((dstLastBitPos)>>3);
 
         final int srcFirstBitPosMod8 = (((int)srcFirstBitPos)&7);
         final int srcLastBitPosMod8 = (((int)srcLastBitPos)&7);
@@ -837,17 +834,17 @@ public class ByteTabUtils {
         final short srcInitialFirstAndLastBytes = srcHelper.get8BitsAnd8Bits(src,srcFirstByteIndex,srcLastByteIndex);
         final byte srcInitialFirstByte = (byte)(srcInitialFirstAndLastBytes>>8);
         final byte srcInitialLastByte = (byte)srcInitialFirstAndLastBytes;
-        final short destInitialFirstAndLastBytes = destHelper.get8BitsAnd8Bits(dest,destFirstByteIndex,destLastByteIndex);
-        final byte destInitialFirstByte = (byte)(destInitialFirstAndLastBytes>>8);
-        final byte destInitialLastByte = (byte)destInitialFirstAndLastBytes;
+        final short dstInitialFirstAndLastBytes = dstHelper.get8BitsAnd8Bits(dst,dstFirstByteIndex,dstLastByteIndex);
+        final byte dstInitialFirstByte = (byte)(dstInitialFirstAndLastBytes>>8);
+        final byte dstInitialLastByte = (byte)dstInitialFirstAndLastBytes;
 
         final int srcNbrOfBytes = srcLastByteIndex - srcFirstByteIndex + 1;
 
         final int byteSizeForBytewiseCopy = srcNbrOfBytes-(oneIfFirstByteApart+oneIfLastByteApart);
         if (byteSizeForBytewiseCopy != 0) {
             final int srcBytePos = srcFirstByteIndex+oneIfFirstByteApart;
-            final int destBytePos = destFirstByteIndex+oneIfFirstByteApart;
-            tabBytewiseCopy(srcHelper, src, srcBytePos, destHelper, dest, destBytePos, byteSizeForBytewiseCopy, bigEndian);
+            final int dstBytePos = dstFirstByteIndex+oneIfFirstByteApart;
+            tabBytewiseCopy(srcHelper, src, srcBytePos, dstHelper, dst, dstBytePos, byteSizeForBytewiseCopy, bigEndian);
         }
         if (!srcStartsOnAByte) {
             final int mask1;
@@ -856,7 +853,7 @@ public class ByteTabUtils {
             } else {
                 mask1 = byteMask1FromIndexTo7(srcFirstBitPosMod8);
             }
-            destHelper.put8Bits(dest,destFirstByteIndex,(byte)((destInitialFirstByte & (~mask1))|(srcInitialFirstByte & mask1)));
+            dstHelper.put8Bits(dst,dstFirstByteIndex,(byte)((dstInitialFirstByte & (~mask1))|(srcInitialFirstByte & mask1)));
         }
         if (!srcEndsOnAByte) {
             final int mask1;
@@ -865,7 +862,7 @@ public class ByteTabUtils {
             } else {
                 mask1 = byteMask1From0ToIndex(srcLastBitPosMod8);
             }
-            destHelper.put8Bits(dest,destLastByteIndex,(byte)((destInitialLastByte & (~mask1))|(srcInitialLastByte & mask1)));
+            dstHelper.put8Bits(dst,dstLastByteIndex,(byte)((dstInitialLastByte & (~mask1))|(srcInitialLastByte & mask1)));
         }
     }
 
@@ -873,163 +870,163 @@ public class ByteTabUtils {
             BaseBTHelper srcHelper,
             Object src,
             long srcFirstBitPos,
-            BaseBTHelper destHelper,
-            Object dest,
-            long destFirstBitPos,
+            BaseBTHelper dstHelper,
+            Object dst,
+            long dstFirstBitPos,
             long bitSize,
             boolean bigEndian) {
-        if ((src == dest) && (srcFirstBitPos == destFirstBitPos)) {
+        if ((src == dst) && (srcFirstBitPos == dstFirstBitPos)) {
             // Quick case.
             return;
         }
         
         if (bitSize <= 32) {
             final int bits = getIntSignedAtBit_noCheck(srcHelper, src, srcFirstBitPos, (int)bitSize, bigEndian);
-            putIntAtBit_noCheck(destHelper, dest, destFirstBitPos, bits, (int)bitSize, bigEndian);
+            putIntAtBit_noCheck(dstHelper, dst, dstFirstBitPos, bits, (int)bitSize, bigEndian);
             return;
         }
 
         if (bitSize <= 64) {
             final long bits = getLongSignedAtBit_noCheck(srcHelper, src, srcFirstBitPos, (int)bitSize, bigEndian);
-            putLongAtBit_noCheck(destHelper, dest, destFirstBitPos, bits, (int)bitSize, bigEndian);
+            putLongAtBit_noCheck(dstHelper, dst, dstFirstBitPos, bits, (int)bitSize, bigEndian);
             return;
         }
 
         final long srcLastBitPos = srcFirstBitPos + bitSize - 1;
-        final long destLastBitPos = destFirstBitPos + bitSize - 1;
+        final long dstLastBitPos = dstFirstBitPos + bitSize - 1;
 
         final int srcFirstByteIndex = (int)(srcFirstBitPos>>3);
-        final int destFirstByteIndex = (int)(destFirstBitPos>>3);
+        final int dstFirstByteIndex = (int)(dstFirstBitPos>>3);
         final int srcLastByteIndex = (int)((srcLastBitPos)>>3);
-        final int destLastByteIndex = (int)((destLastBitPos)>>3);
+        final int dstLastByteIndex = (int)((dstLastBitPos)>>3);
 
         final int srcFirstBitPosMod8 = (((int)srcFirstBitPos)&7);
 
-        final long srcToDestBitPosShift = destFirstBitPos - srcFirstBitPos;
+        final long srcToDstBitPosShift = dstFirstBitPos - srcFirstBitPos;
 
-        final int destFirstBitPosMod8 = (((int)destFirstBitPos)&7);
-        final int destLastBitPosMod8 = (((int)destLastBitPos)&7);
+        final int dstFirstBitPosMod8 = (((int)dstFirstBitPos)&7);
+        final int dstLastBitPosMod8 = (((int)dstLastBitPos)&7);
 
-        final boolean destStartsOnAByte = (destFirstBitPosMod8 == 0);
-        final boolean destEndsOnAByte = (destLastBitPosMod8 == 7);
+        final boolean dstStartsOnAByte = (dstFirstBitPosMod8 == 0);
+        final boolean dstEndsOnAByte = (dstLastBitPosMod8 == 7);
 
-        final int destFirstPlainByteIndex = destFirstByteIndex + (destStartsOnAByte ? 0 : 1);
-        final int destLastPlainByteIndex = destLastByteIndex - (destEndsOnAByte ? 0 : 1);
+        final int dstFirstPlainByteIndex = dstFirstByteIndex + (dstStartsOnAByte ? 0 : 1);
+        final int dstLastPlainByteIndex = dstLastByteIndex - (dstEndsOnAByte ? 0 : 1);
 
-        if (srcToDestBitPosShift > 0) {
+        if (srcToDstBitPosShift > 0) {
 
             /*
              * copying from last to first
              */
 
-            final int srcToDestLastByteShift = destLastByteIndex - srcLastByteIndex;
+            final int srcToDstLastByteShift = dstLastByteIndex - srcLastByteIndex;
 
             // in [-7,7]
-            final int srcToDestBitPosShiftAfterLastByteShift = (int)(srcToDestBitPosShift - (((long)srcToDestLastByteShift)<<3));
-            if(ASSERTIONS)assert((srcToDestBitPosShiftAfterLastByteShift >= -7) && (srcToDestBitPosShiftAfterLastByteShift <= 7));
+            final int srcToDstBitPosShiftAfterLastByteShift = (int)(srcToDstBitPosShift - (((long)srcToDstLastByteShift)<<3));
+            if(ASSERTIONS)assert((srcToDstBitPosShiftAfterLastByteShift >= -7) && (srcToDstBitPosShiftAfterLastByteShift <= 7));
 
             int srcI;
-            if (destEndsOnAByte) {
+            if (dstEndsOnAByte) {
                 srcI = srcLastByteIndex;
             } else {
                 final int srcLastBitPosMod8 = ((int)srcLastBitPos)&7;
-                copyLastBits(srcHelper, src, srcLastByteIndex, srcLastBitPosMod8, destHelper, dest, destLastByteIndex, destLastBitPosMod8, bigEndian);
+                copyLastBits(srcHelper, src, srcLastByteIndex, srcLastBitPosMod8, dstHelper, dst, dstLastByteIndex, dstLastBitPosMod8, bigEndian);
 
-                srcI = computeByteIndex(srcLastBitPos - (destLastBitPosMod8+1));
+                srcI = computeByteIndex(srcLastBitPos - (dstLastBitPosMod8+1));
             }
 
-            if (destFirstPlainByteIndex <= destLastPlainByteIndex) {
-                final int srcFirstBitPosInLeftByte = (srcFirstBitPosMod8 - destFirstBitPosMod8)&7;
-                int destI = destLastPlainByteIndex;
+            if (dstFirstPlainByteIndex <= dstLastPlainByteIndex) {
+                final int srcFirstBitPosInLeftByte = (srcFirstBitPosMod8 - dstFirstBitPosMod8)&7;
+                int dstI = dstLastPlainByteIndex;
                 if (bigEndian) {
-                    while (destI >= destFirstPlainByteIndex + 7) {
+                    while (dstI >= dstFirstPlainByteIndex + 7) {
                         final long bits = get_58_to_64_bits_over_9_bytes_bigEndian(srcHelper, src, srcI-8, srcFirstBitPosInLeftByte, 64);
-                        destHelper.put64Bits_bigEndian(dest, destI-7, bits);
+                        dstHelper.put64Bits_bigEndian(dst, dstI-7, bits);
                         srcI -= 8;
-                        destI -= 8;
+                        dstI -= 8;
                     }
-                    while (destI >= destFirstPlainByteIndex) {
+                    while (dstI >= dstFirstPlainByteIndex) {
                         final byte bits = (byte)get_2_to_16_bits_over_2_bytes_bigEndian(srcHelper, src, srcI-1, srcFirstBitPosInLeftByte, 8);
-                        destHelper.put8Bits(dest, destI, bits);
+                        dstHelper.put8Bits(dst, dstI, bits);
                         srcI--;
-                        destI--;
+                        dstI--;
                     }
                 } else {
-                    while (destI >= destFirstPlainByteIndex + 7) {
+                    while (dstI >= dstFirstPlainByteIndex + 7) {
                         final long bits = get_58_to_64_bits_over_9_bytes_littleEndian(srcHelper, src, srcI-8, srcFirstBitPosInLeftByte, 64);
-                        destHelper.put64Bits_littleEndian(dest, destI-7, bits);
+                        dstHelper.put64Bits_littleEndian(dst, dstI-7, bits);
                         srcI -= 8;
-                        destI -= 8;
+                        dstI -= 8;
                     }
-                    while (destI >= destFirstPlainByteIndex) {
+                    while (dstI >= dstFirstPlainByteIndex) {
                         final byte bits = (byte)get_2_to_16_bits_over_2_bytes_littleEndian(srcHelper, src, srcI-1, srcFirstBitPosInLeftByte, 8);
-                        destHelper.put8Bits(dest, destI, bits);
+                        dstHelper.put8Bits(dst, dstI, bits);
                         srcI--;
-                        destI--;
+                        dstI--;
                     }
                 }
             }
 
-            if (!destStartsOnAByte) {
-                copyFirstBits(srcHelper, src, srcFirstByteIndex, srcFirstBitPosMod8, destHelper, dest, destFirstByteIndex, destFirstBitPosMod8, bigEndian);
+            if (!dstStartsOnAByte) {
+                copyFirstBits(srcHelper, src, srcFirstByteIndex, srcFirstBitPosMod8, dstHelper, dst, dstFirstByteIndex, dstFirstBitPosMod8, bigEndian);
             }
         } else {
             /*
              * copying from first to last
              */
 
-            final int srcToDestFirstByteShift = destFirstByteIndex - srcFirstByteIndex;
+            final int srcToDstFirstByteShift = dstFirstByteIndex - srcFirstByteIndex;
 
             // in [-7,7]
-            final int srcToDestBitPosShiftAfterFirstByteShift = (int)(srcToDestBitPosShift - (((long)srcToDestFirstByteShift)<<3));
-            if(ASSERTIONS)assert((srcToDestBitPosShiftAfterFirstByteShift >= -7) && (srcToDestBitPosShiftAfterFirstByteShift <= 7));
+            final int srcToDstBitPosShiftAfterFirstByteShift = (int)(srcToDstBitPosShift - (((long)srcToDstFirstByteShift)<<3));
+            if(ASSERTIONS)assert((srcToDstBitPosShiftAfterFirstByteShift >= -7) && (srcToDstBitPosShiftAfterFirstByteShift <= 7));
 
             int srcI;
-            if (destStartsOnAByte) {
+            if (dstStartsOnAByte) {
                 srcI = srcFirstByteIndex;
             } else {
-                copyFirstBits(srcHelper, src, srcFirstByteIndex, srcFirstBitPosMod8, destHelper, dest, destFirstByteIndex, destFirstBitPosMod8, bigEndian);
+                copyFirstBits(srcHelper, src, srcFirstByteIndex, srcFirstBitPosMod8, dstHelper, dst, dstFirstByteIndex, dstFirstBitPosMod8, bigEndian);
 
-                srcI = computeByteIndex(srcFirstBitPos + (8-destFirstBitPosMod8));
+                srcI = computeByteIndex(srcFirstBitPos + (8-dstFirstBitPosMod8));
             }
 
-            if (destFirstPlainByteIndex <= destLastPlainByteIndex) {
-                final int srcFirstBitPosInLeftByte = (srcFirstBitPosMod8 - destFirstBitPosMod8)&7;
-                int destI = destFirstPlainByteIndex;
+            if (dstFirstPlainByteIndex <= dstLastPlainByteIndex) {
+                final int srcFirstBitPosInLeftByte = (srcFirstBitPosMod8 - dstFirstBitPosMod8)&7;
+                int dstI = dstFirstPlainByteIndex;
                 if (bigEndian) {
-                    // Not doing "destI + 7" because it could overflow.
-                    while (destI <= destLastPlainByteIndex - 7) {
+                    // Not doing "dstI + 7" because it could overflow.
+                    while (dstI <= dstLastPlainByteIndex - 7) {
                         final long bits = get_58_to_64_bits_over_9_bytes_bigEndian(srcHelper, src, srcI, srcFirstBitPosInLeftByte, 64);
-                        destHelper.put64Bits_bigEndian(dest, destI, bits);
+                        dstHelper.put64Bits_bigEndian(dst, dstI, bits);
                         srcI += 8;
-                        destI += 8;
+                        dstI += 8;
                     }
-                    while (destI <= destLastPlainByteIndex) {
+                    while (dstI <= dstLastPlainByteIndex) {
                         final byte bits = (byte)get_2_to_16_bits_over_2_bytes_bigEndian(srcHelper, src, srcI, srcFirstBitPosInLeftByte, 8);
-                        destHelper.put8Bits(dest, destI, bits);
+                        dstHelper.put8Bits(dst, dstI, bits);
                         srcI++;
-                        destI++;
+                        dstI++;
                     }
                 } else {
-                    // Not doing "destI + 7" because it could overflow.
-                    while (destI <= destLastPlainByteIndex - 7) {
+                    // Not doing "dstI + 7" because it could overflow.
+                    while (dstI <= dstLastPlainByteIndex - 7) {
                         final long bits = get_58_to_64_bits_over_9_bytes_littleEndian(srcHelper, src, srcI, srcFirstBitPosInLeftByte, 64);
-                        destHelper.put64Bits_littleEndian(dest, destI, bits);
+                        dstHelper.put64Bits_littleEndian(dst, dstI, bits);
                         srcI += 8;
-                        destI += 8;
+                        dstI += 8;
                     }
-                    while (destI <= destLastPlainByteIndex) {
+                    while (dstI <= dstLastPlainByteIndex) {
                         final byte bits = (byte)get_2_to_16_bits_over_2_bytes_littleEndian(srcHelper, src, srcI, srcFirstBitPosInLeftByte, 8);
-                        destHelper.put8Bits(dest, destI, bits);
+                        dstHelper.put8Bits(dst, dstI, bits);
                         srcI++;
-                        destI++;
+                        dstI++;
                     }
                 }
             }
 
-            if (!destEndsOnAByte) {
+            if (!dstEndsOnAByte) {
                 final int srcLastBitPosMod8 = ((int)srcLastBitPos)&7;
-                copyLastBits(srcHelper, src, srcLastByteIndex, srcLastBitPosMod8, destHelper, dest, destLastByteIndex, destLastBitPosMod8, bigEndian);
+                copyLastBits(srcHelper, src, srcLastByteIndex, srcLastBitPosMod8, dstHelper, dst, dstLastByteIndex, dstLastBitPosMod8, bigEndian);
             }
         }
     }
@@ -1350,25 +1347,25 @@ public class ByteTabUtils {
      /**
       * A sort of arraycopy that works on tabs.
       * 
-      * Precondition: if byteSize > 0, dest, or the buffer it is backing, must be writable.
+      * Precondition: if byteSize > 0, dst, or the buffer it is backing, must be writable.
       */
     private static void tabBytewiseCopy(
             BaseBTHelper srcHelper,
             Object src,
             int srcFirstByteIndex,
-            BaseBTHelper destHelper,
-            Object dest,
-            int destFirstByteIndex,
+            BaseBTHelper dstHelper,
+            Object dst,
+            int dstFirstByteIndex,
             int byteSize,
             boolean bigEndian) {
         final boolean srcHasArray = srcHelper.hasArray(src);
-        final boolean destHasArray = destHelper.hasArray(dest);
-        if (srcHasArray && destHasArray) {
+        final boolean dstHasArray = dstHelper.hasArray(dst);
+        if (srcHasArray && dstHasArray) {
             System.arraycopy(
                     srcHelper.array(src),
                     srcHelper.arrayOffset(src) + srcFirstByteIndex,
-                    destHelper.array(dest),
-                    destHelper.arrayOffset(dest) + destFirstByteIndex,
+                    dstHelper.array(dst),
+                    dstHelper.arrayOffset(dst) + dstFirstByteIndex,
                     byteSize);
             return;
         }
@@ -1377,40 +1374,40 @@ public class ByteTabUtils {
         // if both buffers are identical.
         // Copy is only allowed between ByteBuffers of same order,
         // so we can use long get/put.
-        if (destFirstByteIndex - srcFirstByteIndex > 0) {
+        if (dstFirstByteIndex - srcFirstByteIndex > 0) {
             // last to first
             int i=byteSize;
             if (bigEndian) {
                 while (i > 7) {
                     i -= 8;
-                    destHelper.put64Bits_bigEndian(dest,destFirstByteIndex + i, srcHelper.get64Bits_bigEndian(src,srcFirstByteIndex + i));
+                    dstHelper.put64Bits_bigEndian(dst,dstFirstByteIndex + i, srcHelper.get64Bits_bigEndian(src,srcFirstByteIndex + i));
                 }
             } else {
                 while (i > 7) {
                     i -= 8;
-                    destHelper.put64Bits_littleEndian(dest,destFirstByteIndex + i, srcHelper.get64Bits_littleEndian(src,srcFirstByteIndex + i));
+                    dstHelper.put64Bits_littleEndian(dst,dstFirstByteIndex + i, srcHelper.get64Bits_littleEndian(src,srcFirstByteIndex + i));
                 }
             }
             while (i > 0) {
                 i--;
-                destHelper.put8Bits(dest,destFirstByteIndex + i, srcHelper.get8Bits(src,srcFirstByteIndex + i));
+                dstHelper.put8Bits(dst,dstFirstByteIndex + i, srcHelper.get8Bits(src,srcFirstByteIndex + i));
             }
         } else {
             // first to last
             int i=0;
             if (bigEndian) {
                 while (i < byteSize - 7) {
-                    destHelper.put64Bits_bigEndian(dest,destFirstByteIndex + i, srcHelper.get64Bits_bigEndian(src,srcFirstByteIndex + i));
+                    dstHelper.put64Bits_bigEndian(dst,dstFirstByteIndex + i, srcHelper.get64Bits_bigEndian(src,srcFirstByteIndex + i));
                     i += 8;
                 }
             } else {
                 while (i < byteSize - 7) {
-                    destHelper.put64Bits_littleEndian(dest,destFirstByteIndex + i, srcHelper.get64Bits_littleEndian(src,srcFirstByteIndex + i));
+                    dstHelper.put64Bits_littleEndian(dst,dstFirstByteIndex + i, srcHelper.get64Bits_littleEndian(src,srcFirstByteIndex + i));
                     i += 8;
                 }
             }
             while (i < byteSize) {
-                destHelper.put8Bits(dest,destFirstByteIndex + i, srcHelper.get8Bits(src,srcFirstByteIndex + i));
+                dstHelper.put8Bits(dst,dstFirstByteIndex + i, srcHelper.get8Bits(src,srcFirstByteIndex + i));
                 i++;
             }
         }
@@ -1441,22 +1438,22 @@ public class ByteTabUtils {
      */
 
     /**
-     * Copies the 1 to 7 bits that end up in dest first byte.
+     * Copies the 1 to 7 bits that end up in dst first byte.
      */
     private static void copyFirstBits(
             BaseBTHelper srcHelper,
             Object src,
             int srcFirstByteIndex,
             int srcFirstBitPosMod8,
-            BaseBTHelper destHelper,
-            Object dest,
-            int destFirstByteIndex,
-            int destFirstBitPosMod8,
+            BaseBTHelper dstHelper,
+            Object dst,
+            int dstFirstByteIndex,
+            int dstFirstBitPosMod8,
             boolean bigEndian) {
         if (bigEndian) {
-            copyFirstBits_bigEndian(srcHelper, src, srcFirstByteIndex, srcFirstBitPosMod8, destHelper, dest, destFirstByteIndex, destFirstBitPosMod8);
+            copyFirstBits_bigEndian(srcHelper, src, srcFirstByteIndex, srcFirstBitPosMod8, dstHelper, dst, dstFirstByteIndex, dstFirstBitPosMod8);
         } else {
-            copyFirstBits_littleEndian(srcHelper, src, srcFirstByteIndex, srcFirstBitPosMod8, destHelper, dest, destFirstByteIndex, destFirstBitPosMod8);
+            copyFirstBits_littleEndian(srcHelper, src, srcFirstByteIndex, srcFirstBitPosMod8, dstHelper, dst, dstFirstByteIndex, dstFirstBitPosMod8);
         }
     }
 
@@ -1465,19 +1462,19 @@ public class ByteTabUtils {
             Object src,
             int srcFirstByteIndex,
             int srcFirstBitPosMod8,
-            BaseBTHelper destHelper,
-            Object dest,
-            int destFirstByteIndex,
-            int destFirstBitPosMod8) {
-        final byte srcBitsAtDestPos;
-        if (srcFirstBitPosMod8 - destFirstBitPosMod8 > 0) {
-            final int srcFirstBitPosInByte = srcFirstBitPosMod8 - destFirstBitPosMod8;
-            srcBitsAtDestPos = (byte)get_2_to_16_bits_over_2_bytes_bigEndian(srcHelper, src, srcFirstByteIndex, srcFirstBitPosInByte, 8);
+            BaseBTHelper dstHelper,
+            Object dst,
+            int dstFirstByteIndex,
+            int dstFirstBitPosMod8) {
+        final byte srcBitsAtDstPos;
+        if (srcFirstBitPosMod8 - dstFirstBitPosMod8 > 0) {
+            final int srcFirstBitPosInByte = srcFirstBitPosMod8 - dstFirstBitPosMod8;
+            srcBitsAtDstPos = (byte)get_2_to_16_bits_over_2_bytes_bigEndian(srcHelper, src, srcFirstByteIndex, srcFirstBitPosInByte, 8);
         } else {
-            srcBitsAtDestPos = (byte)(srcHelper.get8Bits(src,srcFirstByteIndex)>>(destFirstBitPosMod8-srcFirstBitPosMod8));
+            srcBitsAtDstPos = (byte)(srcHelper.get8Bits(src,srcFirstByteIndex)>>(dstFirstBitPosMod8-srcFirstBitPosMod8));
         }
-        final byte destBitsMask1 = byteMask1From0ToIndex(7-destFirstBitPosMod8);
-        destHelper.put8Bits(dest,destFirstByteIndex,(byte)((destHelper.get8Bits(dest,destFirstByteIndex) & (~destBitsMask1)) | (srcBitsAtDestPos & destBitsMask1)));
+        final byte dstBitsMask1 = byteMask1From0ToIndex(7-dstFirstBitPosMod8);
+        dstHelper.put8Bits(dst,dstFirstByteIndex,(byte)((dstHelper.get8Bits(dst,dstFirstByteIndex) & (~dstBitsMask1)) | (srcBitsAtDstPos & dstBitsMask1)));
     }
 
     private static void copyFirstBits_littleEndian(
@@ -1485,38 +1482,38 @@ public class ByteTabUtils {
             Object src,
             int srcFirstByteIndex,
             int srcFirstBitPosMod8,
-            BaseBTHelper destHelper,
-            Object dest,
-            int destFirstByteIndex,
-            int destFirstBitPosMod8) {
-        final byte srcBitsAtDestPos;
-        if (srcFirstBitPosMod8 - destFirstBitPosMod8 > 0) {
-            final int srcFirstBitPosInByte = srcFirstBitPosMod8-destFirstBitPosMod8;
-            srcBitsAtDestPos = (byte)get_2_to_16_bits_over_2_bytes_littleEndian(srcHelper, src, srcFirstByteIndex, srcFirstBitPosInByte, 8);
+            BaseBTHelper dstHelper,
+            Object dst,
+            int dstFirstByteIndex,
+            int dstFirstBitPosMod8) {
+        final byte srcBitsAtDstPos;
+        if (srcFirstBitPosMod8 - dstFirstBitPosMod8 > 0) {
+            final int srcFirstBitPosInByte = srcFirstBitPosMod8-dstFirstBitPosMod8;
+            srcBitsAtDstPos = (byte)get_2_to_16_bits_over_2_bytes_littleEndian(srcHelper, src, srcFirstByteIndex, srcFirstBitPosInByte, 8);
         } else {
-            srcBitsAtDestPos = (byte)(srcHelper.get8Bits(src,srcFirstByteIndex)<<(destFirstBitPosMod8-srcFirstBitPosMod8));
+            srcBitsAtDstPos = (byte)(srcHelper.get8Bits(src,srcFirstByteIndex)<<(dstFirstBitPosMod8-srcFirstBitPosMod8));
         }
-        final byte destBitsMask1 = byteMask1FromIndexTo7(destFirstBitPosMod8);
-        destHelper.put8Bits(dest,destFirstByteIndex,(byte)((destHelper.get8Bits(dest,destFirstByteIndex) & (~destBitsMask1)) | (srcBitsAtDestPos & destBitsMask1)));
+        final byte dstBitsMask1 = byteMask1FromIndexTo7(dstFirstBitPosMod8);
+        dstHelper.put8Bits(dst,dstFirstByteIndex,(byte)((dstHelper.get8Bits(dst,dstFirstByteIndex) & (~dstBitsMask1)) | (srcBitsAtDstPos & dstBitsMask1)));
     }
 
     /**
-     * Copies the 1 to 7 bits that end up in dest last byte.
+     * Copies the 1 to 7 bits that end up in dst last byte.
      */
     private static void copyLastBits(
             BaseBTHelper srcHelper,
             Object src,
             int srcLastByteIndex,
             int srcLastBitPosMod8,
-            BaseBTHelper destHelper,
-            Object dest,
-            int destLastByteIndex,
-            int destLastBitPosMod8,
+            BaseBTHelper dstHelper,
+            Object dst,
+            int dstLastByteIndex,
+            int dstLastBitPosMod8,
             boolean bigEndian) {
         if (bigEndian) {
-            copyLastBits_bigEndian(srcHelper, src, srcLastByteIndex, srcLastBitPosMod8, destHelper, dest, destLastByteIndex, destLastBitPosMod8);
+            copyLastBits_bigEndian(srcHelper, src, srcLastByteIndex, srcLastBitPosMod8, dstHelper, dst, dstLastByteIndex, dstLastBitPosMod8);
         } else {
-            copyLastBits_littleEndian(srcHelper, src, srcLastByteIndex, srcLastBitPosMod8, destHelper, dest, destLastByteIndex, destLastBitPosMod8);
+            copyLastBits_littleEndian(srcHelper, src, srcLastByteIndex, srcLastBitPosMod8, dstHelper, dst, dstLastByteIndex, dstLastBitPosMod8);
         }
     }
 
@@ -1525,19 +1522,19 @@ public class ByteTabUtils {
             Object src,
             int srcLastByteIndex,
             int srcLastBitPosMod8,
-            BaseBTHelper destHelper,
-            Object dest,
-            int destLastByteIndex,
-            int destLastBitPosMod8) {
-        final byte srcBitsAtDestPos;
-        if (srcLastBitPosMod8 - destLastBitPosMod8 < 0) {
-            final int srcFirstBitPosInByte = 8 - (destLastBitPosMod8 - srcLastBitPosMod8);
-            srcBitsAtDestPos = (byte)get_2_to_16_bits_over_2_bytes_bigEndian(srcHelper, src, srcLastByteIndex-1, srcFirstBitPosInByte, 8);
+            BaseBTHelper dstHelper,
+            Object dst,
+            int dstLastByteIndex,
+            int dstLastBitPosMod8) {
+        final byte srcBitsAtDstPos;
+        if (srcLastBitPosMod8 - dstLastBitPosMod8 < 0) {
+            final int srcFirstBitPosInByte = 8 - (dstLastBitPosMod8 - srcLastBitPosMod8);
+            srcBitsAtDstPos = (byte)get_2_to_16_bits_over_2_bytes_bigEndian(srcHelper, src, srcLastByteIndex-1, srcFirstBitPosInByte, 8);
         } else {
-            srcBitsAtDestPos = (byte)(srcHelper.get8Bits(src,srcLastByteIndex)<<(srcLastBitPosMod8 - destLastBitPosMod8));
+            srcBitsAtDstPos = (byte)(srcHelper.get8Bits(src,srcLastByteIndex)<<(srcLastBitPosMod8 - dstLastBitPosMod8));
         }
-        final byte destBitsMask1 = byteMask1FromIndexTo7(7-destLastBitPosMod8);
-        destHelper.put8Bits(dest,destLastByteIndex,(byte)((destHelper.get8Bits(dest,destLastByteIndex) & (~destBitsMask1)) | (srcBitsAtDestPos & destBitsMask1)));
+        final byte dstBitsMask1 = byteMask1FromIndexTo7(7-dstLastBitPosMod8);
+        dstHelper.put8Bits(dst,dstLastByteIndex,(byte)((dstHelper.get8Bits(dst,dstLastByteIndex) & (~dstBitsMask1)) | (srcBitsAtDstPos & dstBitsMask1)));
     }
 
     private static void copyLastBits_littleEndian(
@@ -1545,18 +1542,18 @@ public class ByteTabUtils {
             Object src,
             int srcLastByteIndex,
             int srcLastBitPosMod8,
-            BaseBTHelper destHelper,
-            Object dest,
-            int destLastByteIndex,
-            int destLastBitPosMod8) {
-        final byte srcBitsAtDestPos;
-        if (srcLastBitPosMod8 - destLastBitPosMod8 < 0) {
-            final int srcFirstBitPosInByte = 8 - (destLastBitPosMod8 - srcLastBitPosMod8);
-            srcBitsAtDestPos = (byte)get_2_to_16_bits_over_2_bytes_littleEndian(srcHelper, src, srcLastByteIndex-1, srcFirstBitPosInByte, 8);
+            BaseBTHelper dstHelper,
+            Object dst,
+            int dstLastByteIndex,
+            int dstLastBitPosMod8) {
+        final byte srcBitsAtDstPos;
+        if (srcLastBitPosMod8 - dstLastBitPosMod8 < 0) {
+            final int srcFirstBitPosInByte = 8 - (dstLastBitPosMod8 - srcLastBitPosMod8);
+            srcBitsAtDstPos = (byte)get_2_to_16_bits_over_2_bytes_littleEndian(srcHelper, src, srcLastByteIndex-1, srcFirstBitPosInByte, 8);
         } else {
-            srcBitsAtDestPos = (byte)(srcHelper.get8Bits(src,srcLastByteIndex)>>(srcLastBitPosMod8 - destLastBitPosMod8));
+            srcBitsAtDstPos = (byte)(srcHelper.get8Bits(src,srcLastByteIndex)>>(srcLastBitPosMod8 - dstLastBitPosMod8));
         }
-        final byte destBitsMask1 = byteMask1From0ToIndex(destLastBitPosMod8);
-        destHelper.put8Bits(dest,destLastByteIndex,(byte)((destHelper.get8Bits(dest,destLastByteIndex) & (~destBitsMask1)) | (srcBitsAtDestPos & destBitsMask1)));
+        final byte dstBitsMask1 = byteMask1From0ToIndex(dstLastBitPosMod8);
+        dstHelper.put8Bits(dst,dstLastByteIndex,(byte)((dstHelper.get8Bits(dst,dstLastByteIndex) & (~dstBitsMask1)) | (srcBitsAtDstPos & dstBitsMask1)));
     }
 }

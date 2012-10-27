@@ -196,27 +196,14 @@ public class LangUtils {
      * @param from First index.
      * @param length Number of consecutive indexes from the first one included.
      * @return True if [from,from+length-1] is included in [0,limit[.
-     * @throws IllegalArgumentException if the specified limit or length is < 0.
-     * @throws IndexOutOfBoundsException if from < 0, or if from+length overflows,
-     *         or if from+length > limit.
+     * @throws IndexOutOfBoundsException if limit < 0, or from < 0, or length < 0,
+     *         or from+length overflows, or from+length > limit.
      */
     public static boolean checkBounds(int limit, int from, int length) {
         // Similar code can be found in Buffer class, but it's
-        // package-private, and only throws IndexOutOfBoundsException.
+        // package-private.
         if ((limit|length|from|(from+length)|(limit-(from+length))) < 0) {
-            if (limit < 0) {
-                throw new IllegalArgumentException("limit ["+limit+"] must be >= 0");
-            }
-            if (length < 0) {
-                throw new IllegalArgumentException("length ["+length+"] must be >= 0");
-            }
-            if (from < 0) {
-                throw new IndexOutOfBoundsException("from ["+from+"] must be >= 0");
-            }
-            if (from+length < 0) {
-                throw new IndexOutOfBoundsException("from ["+from+"] + length ["+length+"] overflow");
-            }
-            throw new IndexOutOfBoundsException("from ["+from+"] + length ["+length+"] > limit ["+limit+"]");
+            throwIOOBE(limit, from, length);
         }
         return true;
     }
@@ -226,25 +213,12 @@ public class LangUtils {
      * @param from First index.
      * @param length Number of consecutive indexes from the first one included.
      * @return True if [from,from+length-1] is included in [0,limit[.
-     * @throws IllegalArgumentException if the specified limit or length is < 0.
-     * @throws IndexOutOfBoundsException if from < 0, or if from+length overflows,
-     *         or if from+length > limit.
+     * @throws IndexOutOfBoundsException if limit < 0, or from < 0, or length < 0,
+     *         or from+length overflows, or from+length > limit.
      */
     public static boolean checkBounds(long limit, long from, long length) {
         if ((limit|length|from|(from+length)|(limit-(from+length))) < 0) {
-            if (limit < 0) {
-                throw new IllegalArgumentException("limit ["+limit+"] must be >= 0");
-            }
-            if (length < 0) {
-                throw new IllegalArgumentException("length ["+length+"] must be >= 0");
-            }
-            if (from < 0) {
-                throw new IndexOutOfBoundsException("from ["+from+"] must be >= 0");
-            }
-            if (from+length < 0) {
-                throw new IndexOutOfBoundsException("from ["+from+"] + length ["+length+"] overflow");
-            }
-            throw new IndexOutOfBoundsException("from ["+from+"] + length ["+length+"] > limit ["+limit+"]");
+            throwIOOBE(limit, from, length);
         }
         return true;
     }
@@ -364,6 +338,17 @@ public class LangUtils {
     //--------------------------------------------------------------------------
     // PRIVATE METHODS
     //--------------------------------------------------------------------------
+
+    /**
+     * int version, for wrapping if from+length < 0, as for long version.
+     */
+    private static void throwIOOBE(int limit, int from, int length) {
+        throw new IndexOutOfBoundsException("[from..from+length[ (["+from+".."+(from+length)+"[) must be in [0..limit[ ([0.."+limit+"[)");
+    }
+
+    private static void throwIOOBE(long limit, long from, long length) {
+        throw new IndexOutOfBoundsException("[from..from+length[ (["+from+".."+(from+length)+"[) must be in [0..limit[ ([0.."+limit+"[)");
+    }
 
     /**
      * This treatment is recursive.

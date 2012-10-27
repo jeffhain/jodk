@@ -263,7 +263,7 @@ public class UnicastRingBuffer extends AbstractRingBuffer {
         }
         @Override
         public void runWorkerFrom(long startSequence) throws InterruptedException {
-            // Disabled if single subscriber, else he could
+            // Disabled if single subscriber, else it could
             // wait forever for a skipped sequence to be read.
             if (this.serviceOrSingleSubscriber) {
                 throw new UnsupportedOperationException();
@@ -457,8 +457,6 @@ public class UnicastRingBuffer extends AbstractRingBuffer {
 
                         // If there is only one subscriber, READABLE case is the
                         // most common, so it's better to test it at first.
-                        // If there are multiple subscribers, BEING_READ should
-                        // be common too, so we test it second.
                         if (status == ES_READABLE) {
                             if (singleSubscriberAndNonService) {
                                 if(ASSERTIONS)assert(sequence == attemptSequence);
@@ -1948,11 +1946,11 @@ public class UnicastRingBuffer extends AbstractRingBuffer {
      * @param interruptIfPossible If true, attempts to interrupt running workers.
      */
     long[] shutdownNowImpl(boolean interruptIfPossible) {
-        // Using main mutex to ensure consistency between permission
-        // checks and actual shutdown, in particular so that we checked
+        // Using main lock to ensure consistency between permission
+        // checks and actual shut down, in particular so that we checked
         // permissions for all eventually subsequently interrupted threads.
         final boolean stateChanged;
-        final boolean wasShutdownUnused;
+        final boolean wasShutdown_unused;
         boolean neverRunning = false;
         this.mainLock.lock();
         try {
@@ -1961,7 +1959,7 @@ public class UnicastRingBuffer extends AbstractRingBuffer {
             checkShutdownAccessIfNeeded(interruption);
             // Using CASes, which would update state properly (order matters) even if used concurrently.
             stateChanged =
-                    (wasShutdownUnused = this.ringBufferState.compareAndSet(STATE_TERMINATE_WHEN_IDLE, STATE_TERMINATE_ASAP))
+                    (wasShutdown_unused = this.ringBufferState.compareAndSet(STATE_TERMINATE_WHEN_IDLE, STATE_TERMINATE_ASAP))
                     || this.ringBufferState.compareAndSet(STATE_RUNNING, STATE_TERMINATE_ASAP)
                     || (neverRunning = this.ringBufferState.compareAndSet(STATE_PENDING, STATE_TERMINATE_ASAP));
             if (stateChanged) {

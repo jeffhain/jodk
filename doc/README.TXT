@@ -8,9 +8,11 @@ alternatives to those of JDK.
 
    Main content:
 - FastMath (older versions available at http://sourceforge.net/projects/jafama).
-- ThinTime, which provides nanosecond-precise (but not -accurate) time.
+- ThinTime, which provides up to nanosecond-precise (but not -accurate) time.
 - DataBuffer, a bitwise version of ByteBuffer, and equivalent treatments for use
   on byte arrays or ByteBuffer instances.
+- ByteCopyUtils, which provides methods to copy bytes between ByteBuffers,
+  between FileChannels, and between each other.
 - LongCounter, a non-monotonic sort of AtomicLong which might scale better for
   some usages.
 - HeisenLogger, a light-side-effect logger for debugging concurrent treatments.
@@ -28,7 +30,7 @@ alternatives to those of JDK.
 -- DEPENDENCIES
 --------------------------------------------------------------------------------
 
-- src and samples: JDK 6
+- src, tools and samples: JDK 6
 
 - test: JDK 7 (for ForkJoinPool) and JUnit (1.0 works)
 
@@ -45,6 +47,41 @@ alternatives to those of JDK.
 --------------------------------------------------------------------------------
 -- VERSIONS
 --------------------------------------------------------------------------------
+
+- 2012/10/28 modifications (non-tagged):
+  - API change: LangUtils.checkBounds(int,int,int) and
+    LangUtils.checkBounds(long,long,long) now can only throw
+    IndexOutOfBoundsException, instead of IllegalArgumentException in some cases,
+    which is more alike usual JDK behavior.
+    These methods now also have less code, so might be faster.
+    Did let this modification leak through multiple APIs, that now in some cases
+    throw IOOBE instead of IAE.
+  - API change: removed some usages of UnsupportedOperationException:
+    - in HeisenLogger, replaced with IllegalStateException if too many logs,
+    - in InterfaceRingBufferWorkerFactory and its implementations, replaced with
+      IllegalStateException if no more worker can be created,
+    - when encountering a value that "can't be" (i.e. never happens unless of a
+      bug), after multiple "if" or in a switch/case, replaced with
+      AssertionError.
+  - API change: added tools source directory, and moved Unchecked, TestUtils and
+    ProcessorsUser classes to it.
+  - In tools, added UncheckedIO, as well as MockFileChannel and related mocking
+    classes, useful to test treatments dealing with FileChannels.
+  - Added ByteCopyUtils, which provides methods to copy bytes between
+    ByteBuffers, between FileChannels, and between each other.
+  - Updated some Javadocs in ByteBufferUtils and DataBufferUtils, in particular
+    to make reference to ByteCopyUtils treatments which might be way faster.
+  - Typos.
+  - Renamed all "dest/destXXX" variables into "dst/dstXXX", for consistency
+    across io package, and because it fits better with "src" (same length, no
+    vowel). This did not change any class or method name.
+  - In FastMath, removed some uselessly-indenting "} else {" before a return.
+  - In NumbersUtils.toInt(long), simplified a test.
+  - In MulticastRingBuffer, corrected messed-up comment about
+    SET_VOLATILE_MPS_ONLY_BEFORE_WAITING.
+  - In ring buffers Javadocs, replaced references to "setStartSequence" method
+    (removed before open-sourcing), with references to "runWorkerFrom" method.
+  - Made DataBufferTest faster, by only using messiest buffers instances.
 
 - V1.2:
   - BUG FIX: RingBufferExecutorService.shutdownNow() wasn't properly returning
@@ -153,4 +190,3 @@ alternatives to those of JDK.
       - timesNoModuloSafe into multiplyExact (and timesExact in NumbersUtils)
 
 --------------------------------------------------------------------------------
-

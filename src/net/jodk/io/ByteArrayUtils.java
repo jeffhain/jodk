@@ -313,7 +313,7 @@ public class ByteArrayUtils {
      * identical array objects with overlapping copy ranges.
      * 
      * For non-byte-aligned bit shifts of many bits, i.e. if
-     * ((srcFirstBitPos - destFirstBitPos) % 8 != 0) and bitSize is large,
+     * ((srcFirstBitPos - dstFirstBitPos) % 8 != 0) and bitSize is large,
      * this treatment is typically a few dozen times slower than System.arraycopy.
      * 
      * For byte-aligned bit shifts, it is several times slower
@@ -322,23 +322,22 @@ public class ByteArrayUtils {
      * 
      * @param src The source array.
      * @param srcFirstBitPos Starting bit position in the source array.
-     * @param dest The destination array.
-     * @param destFirstBitPos Starting bit position in the destination array.
+     * @param dst The destination array.
+     * @param dstFirstBitPos Starting bit position in the destination array.
      * @param bitSize The number of bits to copy.
      * @param order Byte order to use.
-     * @throws NullPointerException if either src, dest or order is null.
-     * @throws IllegalArgumentException if bitSize < 0.
-     * @throws IndexOutOfBoundsException if the specified bits are out of range.
+     * @throws NullPointerException if either src, dst or order is null.
+     * @throws IndexOutOfBoundsException if bitSize < 0, or the specified bits are out of range.
      */
     public static void arrayCopyBits(
             byte[] src,
             long srcFirstBitPos,
-            byte[] dest,
-            long destFirstBitPos,
+            byte[] dst,
+            long dstFirstBitPos,
             long bitSize,
             ByteOrder order) {
         LangUtils.checkNonNull(src);
-        LangUtils.checkNonNull(dest);
+        LangUtils.checkNonNull(dst);
         LangUtils.checkNonNull(order);
         
         ByteTabUtils.tabCopyBits(
@@ -348,10 +347,10 @@ public class ByteArrayUtils {
                 (((long)src.length)<<3),
                 srcFirstBitPos,
                 HELPER,
-                dest,
+                dst,
                 0,
-                (((long)dest.length)<<3),
-                destFirstBitPos,
+                (((long)dst.length)<<3),
+                dstFirstBitPos,
                 bitSize,
                 order == ByteOrder.BIG_ENDIAN);
     }
@@ -367,8 +366,8 @@ public class ByteArrayUtils {
      * @param byteSize Number of bytes to put in resulting string.
      * @param radix Radix of digits put in resulting string.
      * @return A string containing the specified data range in the specified format.
-     * @throws IllegalArgumentException if byteSize < 0, or if the specified radix is not in [2,36].
-     * @throws IndexOutOfBoundsException if the specified bytes are out of range.
+     * @throws IllegalArgumentException if the specified radix is not in [2,36].
+     * @throws IndexOutOfBoundsException if byteSize < 0,, or the specified bytes are out of range.
      */
     public static String toString(byte[] buffer, int firstByteIndex, int byteSize, int radix) {
         return ByteTabUtils.toString(HELPER, buffer, 0, buffer.length, firstByteIndex, byteSize, radix);
@@ -382,8 +381,7 @@ public class ByteArrayUtils {
      * @param bigEndian Whether the bits should be displayed in big endian or
      *                  little endian order.
      * @return A string containing the specified data range in the specified format.
-     * @throws IllegalArgumentException if bitSize < 0.
-     * @throws IndexOutOfBoundsException if the specified bits are out of range.
+     * @throws IndexOutOfBoundsException if bitSize < 0, or the specified bits are out of range.
      */
     public static String toStringBits(byte[] buffer, long firstBitPos, long bitSize, boolean bigEndian) {
         return ByteTabUtils.toStringBits(HELPER, buffer, 0, (((long)buffer.length)<<3), firstBitPos, bitSize, bigEndian);

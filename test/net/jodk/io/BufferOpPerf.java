@@ -96,10 +96,10 @@ public class BufferOpPerf {
         public int getIntUnsignedAtBit(long firstBitPos, int bitSize);
         public long getLongUnsignedAtBit(long firstBitPos, int bitSize);
         /**
-         * src and dest must have same order.
+         * src and dst must have same order.
          */
-        public void bufferCopy(int srcFirstByteIndex, int destFirstByteIndex, int byteSize);
-        public void bufferCopyBits(long srcFirstBitPos, long destFirstBitPos, long bitSize);
+        public void bufferCopy(int srcFirstByteIndex, int dstFirstByteIndex, int byteSize);
+        public void bufferCopyBits(long srcFirstBitPos, long dstFirstBitPos, long bitSize);
     }
     
     /**
@@ -251,11 +251,11 @@ public class BufferOpPerf {
             throw new UnsupportedOperationException();
         }
         @Override
-        public void bufferCopy(int srcFirstByteIndex, int destFirstByteIndex, int byteSize) {
-            System.arraycopy(this.buffer1, srcFirstByteIndex, this.buffer2, destFirstByteIndex, byteSize);
+        public void bufferCopy(int srcFirstByteIndex, int dstFirstByteIndex, int byteSize) {
+            System.arraycopy(this.buffer1, srcFirstByteIndex, this.buffer2, dstFirstByteIndex, byteSize);
         }
         @Override
-        public void bufferCopyBits(long srcFirstBitPos, long destFirstBitPos, long bitSize) {
+        public void bufferCopyBits(long srcFirstBitPos, long dstFirstBitPos, long bitSize) {
             throw new UnsupportedOperationException();
         }
     }
@@ -412,16 +412,16 @@ public class BufferOpPerf {
             return ByteArrayUtils.getLongUnsignedAtBit(this.buffer1.array, firstBitPos, bitSize, this.buffer1.order);
         }
         @Override
-        public void bufferCopy(int srcFirstByteIndex, int destFirstByteIndex, int byteSize) {
+        public void bufferCopy(int srcFirstByteIndex, int dstFirstByteIndex, int byteSize) {
             throw new UnsupportedOperationException();
         }
         @Override
-        public void bufferCopyBits(long srcFirstBitPos, long destFirstBitPos, long bitSize) {
+        public void bufferCopyBits(long srcFirstBitPos, long dstFirstBitPos, long bitSize) {
             ByteArrayUtils.arrayCopyBits(
                     this.buffer1.array,
                     srcFirstBitPos,
                     this.buffer2.array,
-                    destFirstBitPos,
+                    dstFirstBitPos,
                     bitSize,
                     this.buffer1.order);
         }
@@ -568,16 +568,16 @@ public class BufferOpPerf {
             return ByteBufferUtils.getLongUnsignedAtBit(this.buffer1, firstBitPos, bitSize);
         }
         @Override
-        public void bufferCopy(int srcFirstByteIndex, int destFirstByteIndex, int byteSize) {
+        public void bufferCopy(int srcFirstByteIndex, int dstFirstByteIndex, int byteSize) {
             throw new UnsupportedOperationException();
         }
         @Override
-        public void bufferCopyBits(long srcFirstBitPos, long destFirstBitPos, long bitSize) {
+        public void bufferCopyBits(long srcFirstBitPos, long dstFirstBitPos, long bitSize) {
             ByteBufferUtils.bufferCopyBits(
                     this.buffer1,
                     srcFirstBitPos,
                     this.buffer2,
-                    destFirstBitPos,
+                    dstFirstBitPos,
                     bitSize);
         }
     }
@@ -727,11 +727,11 @@ public class BufferOpPerf {
             throw new UnsupportedOperationException();
         }
         @Override
-        public void bufferCopy(int srcFirstByteIndex, int destFirstByteIndex, int byteSize) {
+        public void bufferCopy(int srcFirstByteIndex, int dstFirstByteIndex, int byteSize) {
             throw new UnsupportedOperationException();
         }
         @Override
-        public void bufferCopyBits(long srcFirstBitPos, long destFirstBitPos, long bitSize) {
+        public void bufferCopyBits(long srcFirstBitPos, long dstFirstBitPos, long bitSize) {
             throw new UnsupportedOperationException();
         }
     }
@@ -877,12 +877,12 @@ public class BufferOpPerf {
             return this.buffer1.getLongUnsignedAtBit(firstBitPos, bitSize);
         }
         @Override
-        public void bufferCopy(int srcFirstByteIndex, int destFirstByteIndex, int byteSize) {
+        public void bufferCopy(int srcFirstByteIndex, int dstFirstByteIndex, int byteSize) {
             throw new UnsupportedOperationException();
         }
         @Override
-        public void bufferCopyBits(long srcFirstBitPos, long destFirstBitPos, long bitSize) {
-            DataBuffer.bufferCopyBits(this.buffer1, srcFirstBitPos, this.buffer2, destFirstBitPos, bitSize);
+        public void bufferCopyBits(long srcFirstBitPos, long dstFirstBitPos, long bitSize) {
+            DataBuffer.bufferCopyBits(this.buffer1, srcFirstBitPos, this.buffer2, dstFirstBitPos, bitSize);
         }
     }
 
@@ -1817,7 +1817,7 @@ public class BufferOpPerf {
             }
 
             final byte[] srcBA = new byte[arrayByteSize];
-            final byte[] destBA = new byte[arrayByteSize];
+            final byte[] dstBA = new byte[arrayByteSize];
 
             long copiedBitSize;
             int divisor;
@@ -1918,8 +1918,8 @@ public class BufferOpPerf {
                     startTimer();
                     for (int i=0;i<nbrOfRounds;i++) {
                         long srcBitPos = int1To7[j];
-                        long destBitPos = int1To7[(NBR_OF_VALUES-1)-j];
-                        benchable.bufferCopyBits(srcBitPos, destBitPos, copiedBitSize);
+                        long dstBitPos = int1To7[(NBR_OF_VALUES-1)-j];
+                        benchable.bufferCopyBits(srcBitPos, dstBitPos, copiedBitSize);
                         j = (j<NBR_OF_VALUES-1) ? j+1 : 0;
                     }
                     System.out.println("Loop(/"+divisor+") on "+benchable+".bufferCopyBits(...) "+info_byteA_byteS_order(false,copiedByteSize,order)+" took "+getElapsedSeconds()+" s");

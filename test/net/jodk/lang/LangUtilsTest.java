@@ -153,28 +153,21 @@ public class LangUtilsTest extends TestCase {
         try {
             LangUtils.checkBounds(-1, 0, 1);
             assertTrue(false);
-        } catch (IllegalArgumentException e) {
+        } catch (IndexOutOfBoundsException e) {
             // ok
         }
         
-        // length < 0
-        try {
-            LangUtils.checkBounds(10, 5, -1);
-            assertTrue(false);
-        } catch (IllegalArgumentException e) {
-            // ok
-        }
-        // length and from < 0: length priority
-        try {
-            LangUtils.checkBounds(10, -1, -1);
-            assertTrue(false);
-        } catch (IllegalArgumentException e) {
-            // ok
-        }
-
         // from < 0
         try {
             LangUtils.checkBounds(10, -1, 5);
+            assertTrue(false);
+        } catch (IndexOutOfBoundsException e) {
+            // ok
+        }
+
+        // length < 0
+        try {
+            LangUtils.checkBounds(10, 5, -1);
             assertTrue(false);
         } catch (IndexOutOfBoundsException e) {
             // ok
@@ -225,12 +218,8 @@ public class LangUtilsTest extends TestCase {
                 assertTrue(length >= 0);
                 assertTrue(from+length >= 0);
                 assertTrue(from+length <= limit);
-            } catch (IllegalArgumentException e) {
-                assertTrue((limit < 0) || (length < 0));
             } catch (IndexOutOfBoundsException e) {
-                assertTrue(length >= 0);
-                assertTrue(limit >= 0);
-                assertTrue((from < 0) || (from+length < 0) || (from+length > limit));
+                assertTrue((limit < 0) || (from < 0) || (length < 0) || (from+length < 0) || (from+length > limit));
             }
         }
     }
@@ -248,28 +237,21 @@ public class LangUtilsTest extends TestCase {
         try {
             LangUtils.checkBounds(-1L, 0L, 1L);
             assertTrue(false);
-        } catch (IllegalArgumentException e) {
+        } catch (IndexOutOfBoundsException e) {
             // ok
         }
         
-        // length < 0
-        try {
-            LangUtils.checkBounds(10L, 5L, -1L);
-            assertTrue(false);
-        } catch (IllegalArgumentException e) {
-            // ok
-        }
-        // length and from < 0: length priority
-        try {
-            LangUtils.checkBounds(10L, -1L, -1L);
-            assertTrue(false);
-        } catch (IllegalArgumentException e) {
-            // ok
-        }
-
         // from < 0
         try {
             LangUtils.checkBounds(10L, -1L, 5L);
+            assertTrue(false);
+        } catch (IndexOutOfBoundsException e) {
+            // ok
+        }
+
+        // length < 0
+        try {
+            LangUtils.checkBounds(10L, 5L, -1L);
             assertTrue(false);
         } catch (IndexOutOfBoundsException e) {
             // ok
@@ -320,12 +302,8 @@ public class LangUtilsTest extends TestCase {
                 assertTrue(length >= 0);
                 assertTrue(from+length >= 0);
                 assertTrue(from+length <= limit);
-            } catch (IllegalArgumentException e) {
-                assertTrue((limit < 0) || (length < 0));
             } catch (IndexOutOfBoundsException e) {
-                assertTrue(length >= 0);
-                assertTrue(limit >= 0);
-                assertTrue((from < 0) || (from+length < 0) || (from+length > limit));
+                assertTrue((limit < 0) || (from < 0) || (length < 0) || (from+length < 0) || (from+length > limit));
             }
         }
     }

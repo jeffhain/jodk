@@ -507,8 +507,8 @@ abstract class AbstractRingBuffer implements InterfaceRingBuffer {
      * For multicast non-service ring buffers, can only be
      * PENDING or RUNNING.
      * 
-     * Always set in main mutex, to make sure it doesn't change
-     * while being read in main mutex.
+     * Always set in main lock, to make sure it doesn't change
+     * while being read in main lock.
      */
     final PostPaddedAtomicInteger ringBufferState;
 
@@ -765,7 +765,7 @@ abstract class AbstractRingBuffer implements InterfaceRingBuffer {
                         }
                     }
                     if (this.workers.size() == Integer.MAX_VALUE) {
-                        throw new UnsupportedOperationException("full");
+                        throw new IllegalStateException("full");
                     }
                     worker = this.newWorkerRaw(subscriber, aheadWorkers);
                     this.workers.add(worker);

@@ -514,7 +514,7 @@ public class HeisenLogger {
                                 if (logDataArray.length == Integer.MAX_VALUE) {
                                     // Already did last growth.
                                     // Not trying fancy sorts, just giving up.
-                                    throw new UnsupportedOperationException((nbrOfLogsToSort+1L)+" logs to sort");
+                                    throw new IllegalStateException((nbrOfLogsToSort+1L)+" logs to sort");
                                 }
                                 int newCapacity = 2*logDataArray.length;
                                 if (newCapacity < 0) {

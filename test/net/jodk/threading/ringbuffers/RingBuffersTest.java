@@ -2401,7 +2401,7 @@ public class RingBuffersTest extends TestCase {
         assertEquals(expectedMaxPassed, worker.getMaxPassedSequence());
     }
 
-    public void test_IllegalStartException_ifPublishBeforeWorkerCreation() {
+    public void test_IllegalStateException_ifPublishBeforeWorkerCreation() {
         for (boolean multicast : new boolean[]{false,true}) {
             for (boolean service : new boolean[]{false,true}) {
                 test_IllegalStateException_ifPublishBeforeWorkerCreation(
@@ -3320,7 +3320,7 @@ public class RingBuffersTest extends TestCase {
             nbrOfSequences.value = 1;
             return port.claimSequences(nbrOfSequences);
         } else {
-            throw new UnsupportedOperationException(claimType+" unsupported");
+            throw new AssertionError(claimType);
         }
     }
     

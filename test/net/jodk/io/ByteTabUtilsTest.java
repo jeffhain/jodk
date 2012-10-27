@@ -72,7 +72,7 @@ public class ByteTabUtilsTest extends TestCase {
         try {
             ByteTabUtils.computeByteSize(0L,-1L);
             assertTrue(false);
-        } catch (IllegalArgumentException e) {
+        } catch (IndexOutOfBoundsException e) {
             // ok
         }
         try {

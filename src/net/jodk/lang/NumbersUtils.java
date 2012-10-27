@@ -1048,7 +1048,7 @@ public strictfp final class NumbersUtils {
      */
     public static int toInt(long a) {
         if (a != (int)a) {
-            return (a < (long)Integer.MIN_VALUE) ? Integer.MIN_VALUE : Integer.MAX_VALUE;
+            return (a < 0) ? Integer.MIN_VALUE : Integer.MAX_VALUE;
         }
         return (int)a;
     }
@@ -1902,7 +1902,7 @@ public strictfp final class NumbersUtils {
      * 
      * Only works for non-empty ranges, i.e. such as min <= max.
      * This treatment being designed for optimization, min <= max
-     * is only checked is assertions are enabled.
+     * is only checked if assertions are enabled.
      * 
      * @return True if the specified value is in the specified range (inclusive), false otherwise.
      */

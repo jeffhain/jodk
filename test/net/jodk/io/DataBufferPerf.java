@@ -49,9 +49,9 @@ public class DataBufferPerf {
         public abstract boolean call_equals(Object other);
         public abstract int call_compareTo(Object other);
         public abstract void call_put(byte[] src);
-        public abstract void call_get(byte[] dest);
+        public abstract void call_get(byte[] dst);
         public abstract void call_put_bitwise(byte[] src);
-        public abstract void call_get_bitwise(byte[] dest);
+        public abstract void call_get_bitwise(byte[] dst);
     }
     
     private static class MyByteBufferHolder extends MyAbstractBufferHolder {
@@ -84,16 +84,16 @@ public class DataBufferPerf {
             this.buffer.put(src);
         }
         @Override
-        public void call_get(byte[] dest) {
+        public void call_get(byte[] dst) {
             this.buffer.position(0);
-            this.buffer.get(dest);
+            this.buffer.get(dst);
         }
         @Override
         public void call_put_bitwise(byte[] src) {
             throw new UnsupportedOperationException();
         }
         @Override
-        public void call_get_bitwise(byte[] dest) {
+        public void call_get_bitwise(byte[] dst) {
             throw new UnsupportedOperationException();
         }
     }
@@ -128,9 +128,9 @@ public class DataBufferPerf {
             this.buffer.put(src);
         }
         @Override
-        public void call_get(byte[] dest) {
+        public void call_get(byte[] dst) {
             this.buffer.bitPosition(0L);
-            this.buffer.get(dest);
+            this.buffer.get(dst);
         }
         @Override
         public void call_put_bitwise(byte[] src) {
@@ -138,9 +138,9 @@ public class DataBufferPerf {
             this.buffer.put(src);
         }
         @Override
-        public void call_get_bitwise(byte[] dest) {
+        public void call_get_bitwise(byte[] dst) {
             this.buffer.bitPosition(1L);
-            this.buffer.get(dest);
+            this.buffer.get(dst);
         }
     }
     
@@ -312,12 +312,12 @@ public class DataBufferPerf {
         System.out.println("");
         int dummy = 0;
         final int limit = BUFFER_CAPACITY;
-        final byte[] dest = new byte[limit];
+        final byte[] dst = new byte[limit];
         for (MyAbstractBufferHolder bh : variousBH(limit)) {
             try {
                 startTimer();
                 for (int i=0;i<NBR_OF_CALLS;i++) {
-                    bh.call_get(dest);
+                    bh.call_get(dst);
                 }
                 System.out.println("Loop on "+bh.description+".get(byte[]) took "+getElapsedSeconds()+" s");
                 dummy += bh.call_hashCode();
@@ -359,13 +359,13 @@ public class DataBufferPerf {
         System.out.println("");
         int dummy = 0;
         final int limit = BUFFER_CAPACITY;
-        final byte[] dest = new byte[limit];
+        final byte[] dst = new byte[limit];
         // +1 to have room for bitwise operations
         for (MyAbstractBufferHolder bh : variousBH(limit+1)) {
             try {
                 startTimer();
                 for (int i=0;i<NBR_OF_CALLS;i++) {
-                    bh.call_get_bitwise(dest);
+                    bh.call_get_bitwise(dst);
                 }
                 System.out.println("Loop on "+bh.description+".get(byte[]) (bitwise) took "+getElapsedSeconds()+" s");
                 dummy += bh.call_hashCode();

@@ -16,6 +16,7 @@
 package net.jodk;
 
 import net.jodk.io.BufferOpPerf;
+import net.jodk.io.ByteCopyUtilsPerf;
 import net.jodk.io.DataBufferPerf;
 import net.jodk.lang.FastMathPerf;
 import net.jodk.lang.NumbersUtilsPerf;
@@ -55,6 +56,11 @@ public class AllPerfs {
         // io
         
         BufferOpPerf.newRun(args);
+        if (false) {
+            // Disabled by default because involves
+            // drive IO (might burn it down a bit).
+            ByteCopyUtilsPerf.newRun(args);
+        }
         DataBufferPerf.newRun(args);
         
         // lang

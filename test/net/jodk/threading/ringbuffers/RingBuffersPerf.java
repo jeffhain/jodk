@@ -193,7 +193,7 @@ public class RingBuffersPerf {
                                 actualNbrOfSequences);
                     }
                 } else {
-                    throw new UnsupportedOperationException(this.claimType+" unsupported");
+                    throw new AssertionError(this.claimType);
                 }
             } catch (InterruptedException e) {
                 throw new RuntimeException(e);

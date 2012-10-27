@@ -815,7 +815,7 @@ public class RingBufferExecutorServicesTest extends TestCase {
             rbes.execute(runnable);
             didPlanOrRej = true;
         } else {
-            throw new UnsupportedOperationException();
+            throw new AssertionError(executeType);
         }
         return didPlanOrRej;
     }

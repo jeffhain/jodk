@@ -232,9 +232,8 @@ public class DataBuffer implements Comparable<DataBuffer> {
      * @param capacity The capacity to use.
      * @return A DataBuffer backed by the specified byte array.
      * @throws NullPointerException if the specified byte array is null.
-     * @throws IllegalArgumentException if capacity < 0.
-     * @throws IndexOutOfBoundsException if offset < 0, or if offset+capacity
-     *         overflows, or if offset+capacity > buffer.length.
+     * @throws IndexOutOfBoundsException if offset < 0, or capacity < 0,
+     *         or offset+capacity overflows, or offset+capacity > buffer.length.
      */
     public static DataBuffer newInstance(byte[] buffer, int offset, int capacity) {
         LangUtils.checkBounds(buffer.length, offset, capacity);
@@ -295,9 +294,8 @@ public class DataBuffer implements Comparable<DataBuffer> {
      * @return A DataBuffer backed by the specified byte array, with an array offset of zero,
      *         and a capacity of buffer.length.
      * @throws NullPointerException if the specified byte array is null.
-     * @throws IllegalArgumentException if length < 0.
-     * @throws IndexOutOfBoundsException if position < 0, or if position+length
-     *         overflows, or if position+length > buffer.length.
+     * @throws IndexOutOfBoundsException if position < 0, or length < 0,
+     *         or position+length overflows, or position+length > buffer.length.
      */
     public static DataBuffer wrap(byte[] buffer, int position, int length) {
         LangUtils.checkBounds(buffer.length, position, length);
@@ -1219,9 +1217,8 @@ public class DataBuffer implements Comparable<DataBuffer> {
      * @return This DataBuffer.
      * @throws ReadOnlyBufferException if this DataBuffer is read-only.
      * @throws NullPointerException if the specified byte array is null.
-     * @throws IllegalArgumentException if length < 0.
-     * @throws IndexOutOfBoundsException if offset < 0, or if offset+length
-     *         overflows, or if offset+length > src.length.
+     * @throws IndexOutOfBoundsException if offset < 0, or length < 0, or
+     *         offset+length overflows, or offset+length > src.length.
      * @throws BufferOverflowException if there are not enough remaining bits
      *         for this operation.
      */
@@ -1248,26 +1245,26 @@ public class DataBuffer implements Comparable<DataBuffer> {
             bb.put(src, offset, length);
         } else {
             final long srcFirstBitPos = offset * 8L;
-            final BaseBTHelper destTabHelper;
-            final Object destTab;
-            final int destTabOffset;
+            final BaseBTHelper dstTabHelper;
+            final Object dstTab;
+            final int dstTabOffset;
             if (this.ba != null) {
-                destTabHelper = BA_HELPER;
-                destTab = this.ba;
-                destTabOffset = this.baOffset;
+                dstTabHelper = BA_HELPER;
+                dstTab = this.ba;
+                dstTabOffset = this.baOffset;
             } else {
-                destTabHelper = this.tabHelper;
-                destTab = this.tab;
-                destTabOffset = this.tabOffset;
+                dstTabHelper = this.tabHelper;
+                dstTab = this.tab;
+                dstTabOffset = this.tabOffset;
             }
             if (byteAligned) {
                 ByteTabUtils.tabCopyBits_noCheck_bitShiftMultipleOf8(
                         BA_HELPER,
                         src,
                         srcFirstBitPos,
-                        destTabHelper,
-                        destTab,
-                        (((long)destTabOffset)<<3)+this.bitPosition,
+                        dstTabHelper,
+                        dstTab,
+                        (((long)dstTabOffset)<<3)+this.bitPosition,
                         bitSize,
                         this.bigEndian);
             } else {
@@ -1275,9 +1272,9 @@ public class DataBuffer implements Comparable<DataBuffer> {
                         BA_HELPER,
                         src,
                         srcFirstBitPos,
-                        destTabHelper,
-                        destTab,
-                        (((long)destTabOffset)<<3)+this.bitPosition,
+                        dstTabHelper,
+                        dstTab,
+                        (((long)dstTabOffset)<<3)+this.bitPosition,
                         bitSize,
                         this.bigEndian);
             }
@@ -1292,10 +1289,10 @@ public class DataBuffer implements Comparable<DataBuffer> {
      */
 
     /**
-     * Equivalent to get(dest,0,dest.length).
+     * Equivalent to get(dst,0,dst.length).
      */
-    public DataBuffer get(byte[] dest) {
-        return this.get(dest, 0, dest.length);
+    public DataBuffer get(byte[] dst) {
+        return this.get(dst, 0, dst.length);
     }
 
     /**
@@ -1312,19 +1309,18 @@ public class DataBuffer implements Comparable<DataBuffer> {
      * which might lead to different behavior if the specified byte array
      * backs this DataBuffer.
      * 
-     * @param dest Byte array where to put retrieved bytes.
+     * @param dst Byte array where to put retrieved bytes.
      * @param offset Index, in the specified byte array, where to put the first retrieved byte.
      * @param length Number of bytes to get.
      * @return This DataBuffer.
      * @throws NullPointerException if the specified byte array is null.
-     * @throws IllegalArgumentException if length < 0.
-     * @throws IndexOutOfBoundsException if offset < 0, or if offset+length
-     *         overflows, or if offset+length > dest.length.
+     * @throws IndexOutOfBoundsException if offset < 0, or length < 0,
+     *         or offset+length overflows, or offset+length > dst.length.
      * @throws BufferUnderflowException if there are not enough remaining bits
      *         for this operation.
      */
-    public DataBuffer get(byte[] dest, int offset, int length) {
-        LangUtils.checkBounds(dest.length, offset, length);
+    public DataBuffer get(byte[] dst, int offset, int length) {
+        LangUtils.checkBounds(dst.length, offset, length);
         if (length == 0) {
             return this;
         }
@@ -1343,9 +1339,9 @@ public class DataBuffer implements Comparable<DataBuffer> {
             // Position used by get.
             bb.position(this.positionInf());
             // Fast if BB is direct.
-            bb.get(dest, offset, length);
+            bb.get(dst, offset, length);
         } else {
-            final long destFirstBitPos = offset * 8L;
+            final long dstFirstBitPos = offset * 8L;
             final BaseBTHelper srcTabHelper;
             final Object srcTab;
             final int srcTabOffset;
@@ -1364,8 +1360,8 @@ public class DataBuffer implements Comparable<DataBuffer> {
                         srcTab,
                         (((long)srcTabOffset)<<3)+this.bitPosition,
                         BA_HELPER,
-                        dest,
-                        destFirstBitPos,
+                        dst,
+                        dstFirstBitPos,
                         bitSize,
                         this.bigEndian);
             } else {
@@ -1374,8 +1370,8 @@ public class DataBuffer implements Comparable<DataBuffer> {
                         srcTab,
                         (((long)srcTabOffset)<<3)+this.bitPosition,
                         BA_HELPER,
-                        dest,
-                        destFirstBitPos,
+                        dst,
+                        dstFirstBitPos,
                         bitSize,
                         this.bigEndian);
             }
@@ -2104,70 +2100,70 @@ public class DataBuffer implements Comparable<DataBuffer> {
      * Equivalent to calling bufferCopyBits(...) version with "* 8L"
      * applied on indexes and size arguments.
      * 
+     * If your DataBuffers are backed by ByteBuffers, you might want to use
+     * some ByteCopyUtils methods on these ByteBuffers instead, see
+     * ByteBufferUtils.bufferCopy(...) Javadoc.
+     * 
      * @param src The source buffer.
      * @param srcFirstByteIndex Starting byte index in the source buffer.
-     * @param dest The destination buffer.
-     * @param destFirstByteIndex Starting byte index in the destination buffer.
+     * @param dst The destination buffer.
+     * @param dstFirstByteIndex Starting byte index in the destination buffer.
      * @param byteSize The number of bytes to copy.
-     * @throws NullPointerException if either src or dest is null.
-     * @throws ReadOnlyBufferException if dest is read-only and bitSize > 0.
-     * @throws IllegalArgumentException if src and dest don't have the same byte order
+     * @throws NullPointerException if either src or dst is null.
+     * @throws ReadOnlyBufferException if dst is read-only and bitSize > 0.
+     * @throws IllegalArgumentException if src and dst don't have the same byte order
      *         or if bitSize < 0.
      * @throws IndexOutOfBoundsException if the specified bits are out of range.
      */
     public static void bufferCopy(
             DataBuffer src,
             int srcFirstByteIndex,
-            DataBuffer dest,
-            int destFirstByteIndex,
+            DataBuffer dst,
+            int dstFirstByteIndex,
             int byteSize) {
         bufferCopyBits(
                 src,
                 (((long)srcFirstByteIndex)<<3),
-                dest,
-                (((long)destFirstByteIndex)<<3),
+                dst,
+                (((long)dstFirstByteIndex)<<3),
                 (((long)byteSize)<<3));
     }
     
     /**
-     * If src has an array and dest is direct, and you are allowed to change
-     * its ByteBuffer's position, it might be way more efficient to use dest.byteBuffer().put(byte[],int,int),
-     * which copies data with Unsafe by chunks of 1Mo or so.
-     * 
      * If some memory is shared by the specified buffers, in a way that can't
      * be known by this treatment, the resulting content of destination buffer
-     * is undefined. If both src and dest are heap buffers, and their backing
+     * is undefined. If both src and dst are heap buffers, and their backing
      * array is accessible, then this treatment knows how they share data, and
      * takes care to copy such as if the array is shared, data to copy is not
      * erased with copied data.
      * 
      * @param src The source buffer.
      * @param srcFirstBitPos Starting bit position in the source buffer.
-     * @param dest The destination buffer.
-     * @param destFirstBitPos Starting bit position in the destination buffer.
+     * @param dst The destination buffer.
+     * @param dstFirstBitPos Starting bit position in the destination buffer.
      * @param bitSize The number of bits to copy.
-     * @throws NullPointerException if either src or dest is null.
-     * @throws ReadOnlyBufferException if dest is read-only and bitSize > 0.
-     * @throws IllegalArgumentException if src and dest don't have the same byte order
+     * @throws NullPointerException if either src or dst is null.
+     * @throws ReadOnlyBufferException if dst is read-only and bitSize > 0.
+     * @throws IllegalArgumentException if src and dst don't have the same byte order
      *         or if bitSize < 0.
      * @throws IndexOutOfBoundsException if the specified bits are out of range.
      */
     public static void bufferCopyBits(
             DataBuffer src,
             long srcFirstBitPos,
-            DataBuffer dest,
-            long destFirstBitPos,
+            DataBuffer dst,
+            long dstFirstBitPos,
             long bitSize) {
         // Implicit null checks.
         final boolean srcBigEndian = src.bigEndian;
-        final boolean destBigEndian = dest.bigEndian;
+        final boolean dstBigEndian = dst.bigEndian;
 
-        if (dest.isReadOnly() && (bitSize > 0)) {
+        if (dst.isReadOnly() && (bitSize > 0)) {
             throw new ReadOnlyBufferException();
         }
 
-        if (srcBigEndian != destBigEndian) {
-            throw new IllegalArgumentException("src order ["+src.order()+"] != dest order ["+dest.order()+"]");
+        if (srcBigEndian != dstBigEndian) {
+            throw new IllegalArgumentException("src order ["+src.order()+"] != dst order ["+dst.order()+"]");
         }
 
         final BaseBTHelper srcTabHelper;
@@ -2183,17 +2179,17 @@ public class DataBuffer implements Comparable<DataBuffer> {
             srcTabOffset = src.tabOffset;
         }
 
-        final BaseBTHelper destTabHelper;
-        final Object destTab;
-        final int destTabOffset;
-        if (dest.ba != null) {
-            destTabHelper = BA_HELPER;
-            destTab = dest.ba;
-            destTabOffset = dest.baOffset;
+        final BaseBTHelper dstTabHelper;
+        final Object dstTab;
+        final int dstTabOffset;
+        if (dst.ba != null) {
+            dstTabHelper = BA_HELPER;
+            dstTab = dst.ba;
+            dstTabOffset = dst.baOffset;
         } else {
-            destTabHelper = dest.tabHelper;
-            destTab = dest.tab;
-            destTabOffset = dest.tabOffset;
+            dstTabHelper = dst.tabHelper;
+            dstTab = dst.tab;
+            dstTabOffset = dst.tabOffset;
         }
 
         ByteTabUtils.tabCopyBits(
@@ -2202,11 +2198,11 @@ public class DataBuffer implements Comparable<DataBuffer> {
                 srcTabOffset,
                 src.bitLimit(),
                 srcFirstBitPos,
-                destTabHelper,
-                destTab,
-                destTabOffset,
-                dest.bitLimit(),
-                destFirstBitPos,
+                dstTabHelper,
+                dstTab,
+                dstTabOffset,
+                dst.bitLimit(),
+                dstFirstBitPos,
                 bitSize,
                 srcBigEndian);
     }
@@ -2242,8 +2238,8 @@ public class DataBuffer implements Comparable<DataBuffer> {
      * @param byteSize Number of bytes to put in resulting string.
      * @param radix Radix of digits put in resulting string.
      * @return A string containing the specified data range in the specified format.
-     * @throws IllegalArgumentException if byteSize < 0, or if the specified radix is not in [2,36].
-     * @throws IndexOutOfBoundsException if the specified bytes are out of range.
+     * @throws IllegalArgumentException if the specified radix is not in [2,36].
+     * @throws IndexOutOfBoundsException if byteSize < 0, or the specified bytes are out of range.
      */
     public String toString(int firstByteIndex, int byteSize, int radix) {
         return ByteTabUtils.toString(this.tabHelper, this.tab, this.tabOffset, this.limit, firstByteIndex, byteSize, radix);
@@ -2296,7 +2292,6 @@ public class DataBuffer implements Comparable<DataBuffer> {
 
     /**
      * @param ba null if not known.
-     * @param baOffset
      * @param bb null if no backing ByteBuffer.
      */
     protected DataBuffer(

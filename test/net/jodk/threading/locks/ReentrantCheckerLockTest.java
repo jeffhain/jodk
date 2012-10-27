@@ -435,7 +435,7 @@ public class ReentrantCheckerLockTest extends TestCase {
             }
             assertTrue(didIt);
         } else {
-            throw new UnsupportedOperationException(lockType+" unsupported");
+            throw new AssertionError(lockType);
         }
     }
 

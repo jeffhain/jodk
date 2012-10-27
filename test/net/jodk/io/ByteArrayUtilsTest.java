@@ -357,14 +357,14 @@ public class ByteArrayUtilsTest extends AbstractBufferOpTezt {
     public void test_arrayCopyBits_byteArray_long_byteArray_long_long_ByteOrder() {
         test_copyBitsOperation(new InterfaceCopyBitsOperation<MyTab>() {
             @Override
-            public void copyBits(MyTab src, long srcFirstBitPos, MyTab dest, long destFirstBitPos, long bitSize) {
-                if ((src.order == null) || (dest.order == null)) {
+            public void copyBits(MyTab src, long srcFirstBitPos, MyTab dst, long dstFirstBitPos, long bitSize) {
+                if ((src.order == null) || (dst.order == null)) {
                     throw new NullPointerException();
                 }
-                if (src.order != dest.order) {
+                if (src.order != dst.order) {
                     throw new IllegalArgumentException();
                 }
-                ByteArrayUtils.arrayCopyBits(src.buffer, srcFirstBitPos, dest.buffer, destFirstBitPos, bitSize, src.order);
+                ByteArrayUtils.arrayCopyBits(src.buffer, srcFirstBitPos, dst.buffer, dstFirstBitPos, bitSize, src.order);
             }
         });
     }

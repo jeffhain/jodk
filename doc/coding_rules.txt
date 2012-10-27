@@ -17,6 +17,9 @@
   is determined by what it is possible to achieve. Performances are therefore
   not a goal to reach, but a limit to always push further.
 
+- Computation Driven Design: making things that compute well and fast, and then
+  figuring out what can be done with it.
+
 --------------------------------------------------------------------------------
 -- CODING STYLE
 --------------------------------------------------------------------------------

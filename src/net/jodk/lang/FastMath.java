@@ -1102,66 +1102,65 @@ public strictfp final class FastMath {
     public static double log(double value) {
         if (USE_JDK_MATH || (!USE_REDEFINED_LOG)) {
             return STRICT_MATH ? StrictMath.log(value) : Math.log(value);
-        } else {
-            if (value > 0.0) {
-                if (value == Double.POSITIVE_INFINITY) {
-                    return Double.POSITIVE_INFINITY;
-                }
-
-                // For normal values not close to 1.0, we use the following formula:
-                // log(value)
-                // = log(2^exponent*1.mantissa)
-                // = log(2^exponent) + log(1.mantissa)
-                // = exponent * log(2) + log(1.mantissa)
-                // = exponent * log(2) + log(1.mantissaApprox) + log(1.mantissa/1.mantissaApprox)
-                // = exponent * log(2) + log(1.mantissaApprox) + log(1+epsilon)
-                // = exponent * log(2) + log(1.mantissaApprox) + epsilon-epsilon^2/2+epsilon^3/3-epsilon^4/4+...
-                // with:
-                // 1.mantissaApprox <= 1.mantissa,
-                // log(1.mantissaApprox) in table,
-                // epsilon = (1.mantissa/1.mantissaApprox)-1
-                //
-                // To avoid bad relative error for small results,
-                // values close to 1.0 are treated aside, with the formula:
-                // log(x) = z*(2+z^2*((2.0/3)+z^2*((2.0/5))+z^2*((2.0/7))+...)))
-                // with z=(x-1)/(x+1)
-
-                double h;
-                if (value > 0.95) {
-                    if (value < 1.14) {
-                        double z = (value-1.0)/(value+1.0);
-                        double z2 = z*z;
-                        return z*(2+z2*((2.0/3)+z2*((2.0/5)+z2*((2.0/7)+z2*((2.0/9)+z2*((2.0/11)))))));
-                    }
-                    h = 0.0;
-                } else if (value < MIN_DOUBLE_NORMAL) {
-                    // Ensuring value is normal.
-                    value *= TWO_POW_52;
-                    // log(x*2^52)
-                    // = log(x)-ln(2^52)
-                    // = log(x)-52*ln(2)
-                    h = -52*LOG_2;
-                } else {
-                    h = 0.0;
-                }
-
-                int valueBitsHi = (int)(Double.doubleToRawLongBits(value)>>32);
-                int valueExp = (valueBitsHi>>20)-MAX_DOUBLE_EXPONENT;
-                // Getting the first LOG_BITS bits of the mantissa.
-                int xIndex = ((valueBitsHi<<12)>>>(32-LOG_BITS));
-
-                // 1.mantissa/1.mantissaApprox - 1
-                double z = (value * twoPowTab[-valueExp-MIN_DOUBLE_EXPONENT]) * logXInvTab[xIndex] - 1;
-
-                z *= (1-z*((1.0/2)-z*((1.0/3))));
-
-                return h + valueExp * LOG_2 + (logXLogTab[xIndex] + z);
-
-            } else if (value == 0.0) {
-                return Double.NEGATIVE_INFINITY;
-            } else { // value < 0.0, or value is NaN
-                return Double.NaN;
+        }
+        if (value > 0.0) {
+            if (value == Double.POSITIVE_INFINITY) {
+                return Double.POSITIVE_INFINITY;
             }
+
+            // For normal values not close to 1.0, we use the following formula:
+            // log(value)
+            // = log(2^exponent*1.mantissa)
+            // = log(2^exponent) + log(1.mantissa)
+            // = exponent * log(2) + log(1.mantissa)
+            // = exponent * log(2) + log(1.mantissaApprox) + log(1.mantissa/1.mantissaApprox)
+            // = exponent * log(2) + log(1.mantissaApprox) + log(1+epsilon)
+            // = exponent * log(2) + log(1.mantissaApprox) + epsilon-epsilon^2/2+epsilon^3/3-epsilon^4/4+...
+            // with:
+            // 1.mantissaApprox <= 1.mantissa,
+            // log(1.mantissaApprox) in table,
+            // epsilon = (1.mantissa/1.mantissaApprox)-1
+            //
+            // To avoid bad relative error for small results,
+            // values close to 1.0 are treated aside, with the formula:
+            // log(x) = z*(2+z^2*((2.0/3)+z^2*((2.0/5))+z^2*((2.0/7))+...)))
+            // with z=(x-1)/(x+1)
+
+            double h;
+            if (value > 0.95) {
+                if (value < 1.14) {
+                    double z = (value-1.0)/(value+1.0);
+                    double z2 = z*z;
+                    return z*(2+z2*((2.0/3)+z2*((2.0/5)+z2*((2.0/7)+z2*((2.0/9)+z2*((2.0/11)))))));
+                }
+                h = 0.0;
+            } else if (value < MIN_DOUBLE_NORMAL) {
+                // Ensuring value is normal.
+                value *= TWO_POW_52;
+                // log(x*2^52)
+                // = log(x)-ln(2^52)
+                // = log(x)-52*ln(2)
+                h = -52*LOG_2;
+            } else {
+                h = 0.0;
+            }
+
+            int valueBitsHi = (int)(Double.doubleToRawLongBits(value)>>32);
+            int valueExp = (valueBitsHi>>20)-MAX_DOUBLE_EXPONENT;
+            // Getting the first LOG_BITS bits of the mantissa.
+            int xIndex = ((valueBitsHi<<12)>>>(32-LOG_BITS));
+
+            // 1.mantissa/1.mantissaApprox - 1
+            double z = (value * twoPowTab[-valueExp-MIN_DOUBLE_EXPONENT]) * logXInvTab[xIndex] - 1;
+
+            z *= (1-z*((1.0/2)-z*((1.0/3))));
+
+            return h + valueExp * LOG_2 + (logXLogTab[xIndex] + z);
+
+        } else if (value == 0.0) {
+            return Double.NEGATIVE_INFINITY;
+        } else { // value < 0.0, or value is NaN
+            return Double.NaN;
         }
     }
 
@@ -1211,13 +1210,12 @@ public strictfp final class FastMath {
     public static double log10(double value) {
         if (USE_JDK_MATH || (!USE_REDEFINED_LOG)) {
             return STRICT_MATH ? StrictMath.log10(value) : Math.log10(value);
-        } else {
-            // INV_LOG_10 is < 1, but there is no risk of log(double)
-            // overflow (positive or negative) while the end result shouldn't,
-            // since log(Double.MIN_VALUE) and log(Double.MAX_VALUE) have
-            // magnitudes of just a few hundreds.
-            return log(value) * INV_LOG_10;
         }
+        // INV_LOG_10 is < 1, but there is no risk of log(double)
+        // overflow (positive or negative) while the end result shouldn't,
+        // since log(Double.MIN_VALUE) and log(Double.MAX_VALUE) have
+        // magnitudes of just a few hundreds.
+        return log(value) * INV_LOG_10;
     }
 
     /**
@@ -1559,35 +1557,34 @@ public strictfp final class FastMath {
     public static double sqrt(double value) {
         if (USE_JDK_MATH || (!USE_REDEFINED_SQRT)) {
             return STRICT_MATH ? StrictMath.sqrt(value) : Math.sqrt(value);
-        } else {
-            // See cbrt for comments, sqrt uses the same ideas.
-
-            if (!(value > 0.0)) { // value <= 0.0, or value is NaN
-                return (value == 0.0) ? value : Double.NaN;
-            } else if (value == Double.POSITIVE_INFINITY) {
-                return Double.POSITIVE_INFINITY;
-            }
-
-            double h;
-            if (value < MIN_DOUBLE_NORMAL) {
-                value *= TWO_POW_52;
-                h = 2*TWO_POW_N26;
-            } else {
-                h = 2.0;
-            }
-
-            int valueBitsHi = (int)(Double.doubleToRawLongBits(value)>>32);
-            int valueExponentIndex = (valueBitsHi>>20)+(-MAX_DOUBLE_EXPONENT-MIN_DOUBLE_EXPONENT);
-            int xIndex = ((valueBitsHi<<12)>>>(32-SQRT_LO_BITS));
-
-            double result = sqrtXSqrtHiTab[valueExponentIndex] * sqrtXSqrtLoTab[xIndex];
-            double slope = sqrtSlopeHiTab[valueExponentIndex] * sqrtSlopeLoTab[xIndex];
-            value *= 0.25;
-
-            result += (value - result * result) * slope;
-            result += (value - result * result) * slope;
-            return h*(result + (value - result * result) * slope);
         }
+        // See cbrt for comments, sqrt uses the same ideas.
+
+        if (!(value > 0.0)) { // value <= 0.0, or value is NaN
+            return (value == 0.0) ? value : Double.NaN;
+        } else if (value == Double.POSITIVE_INFINITY) {
+            return Double.POSITIVE_INFINITY;
+        }
+
+        double h;
+        if (value < MIN_DOUBLE_NORMAL) {
+            value *= TWO_POW_52;
+            h = 2*TWO_POW_N26;
+        } else {
+            h = 2.0;
+        }
+
+        int valueBitsHi = (int)(Double.doubleToRawLongBits(value)>>32);
+        int valueExponentIndex = (valueBitsHi>>20)+(-MAX_DOUBLE_EXPONENT-MIN_DOUBLE_EXPONENT);
+        int xIndex = ((valueBitsHi<<12)>>>(32-SQRT_LO_BITS));
+
+        double result = sqrtXSqrtHiTab[valueExponentIndex] * sqrtXSqrtLoTab[xIndex];
+        double slope = sqrtSlopeHiTab[valueExponentIndex] * sqrtSlopeLoTab[xIndex];
+        value *= 0.25;
+
+        result += (value - result * result) * slope;
+        result += (value - result * result) * slope;
+        return h*(result + (value - result * result) * slope);
     }
 
     /**

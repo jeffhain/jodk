@@ -210,12 +210,11 @@ public class RingBufferWorkFlowBuilder {
      * @param aheadVWorkers Virtual workers which workers must process events
      *        before the specified subscriber.
      * @return Virtual worker created for the specified subscriber.
-     * @throws IllegalStateException if the work flow has already been applied.
+     * @throws IllegalStateException if the work flow has already been applied,
+     *         or if this builder can't handle more subscribers.
      * @throws IllegalArgumentException if a worker has already been
      *         created by this builder for the specified subscriber, or
      *         if an ahead worker is unknown for this builder.
-     * @throws UnsupportedOperationException if this builder can't handle more
-     *         subscribers.
      */
     public VirtualWorker newVWorker(
             final InterfaceRingBufferSubscriber subscriber,
@@ -242,7 +241,7 @@ public class RingBufferWorkFlowBuilder {
                 }
             }
             if (this.vworkers.size() == Integer.MAX_VALUE) {
-                throw new UnsupportedOperationException("full");
+                throw new IllegalStateException("full");
             }
             
             VirtualWorker[] reducedAheadVWorkers = reducedSortedAheadVWorkers(subscriber,aheadVWorkers);
@@ -282,7 +281,7 @@ public class RingBufferWorkFlowBuilder {
             if (this.applied) {
                 throw new IllegalStateException();
             }
-            if (headVWorkersSet.size() <= 1) {
+            if (this.headVWorkersSet.size() <= 1) {
                 return;
             }
             
@@ -293,7 +292,7 @@ public class RingBufferWorkFlowBuilder {
             // incremented often).
             VirtualWorker theHeadVWorker = this.vworkers.get(0);
             VirtualWorker[] theHeadVWorkerInArray = new VirtualWorker[]{theHeadVWorker};
-            for (VirtualWorker headVWorker : headVWorkersSet) {
+            for (VirtualWorker headVWorker : this.headVWorkersSet) {
                 if (headVWorker == theHeadVWorker) {
                     continue;
                 }
@@ -307,10 +306,10 @@ public class RingBufferWorkFlowBuilder {
                         vworker.aheadVWorkers);
             }
             // Head workers set is now a singleton.
-            headVWorkersSet.clear();
-            headVWorkersSet.add(theHeadVWorker);
+            this.headVWorkersSet.clear();
+            this.headVWorkersSet.add(theHeadVWorker);
             // In case it was also a tail worker.
-            tailVWorkersSet.remove(theHeadVWorker);
+            this.tailVWorkersSet.remove(theHeadVWorker);
         }
     }
     
@@ -329,13 +328,13 @@ public class RingBufferWorkFlowBuilder {
             if (this.applied) {
                 throw new IllegalStateException();
             }
-            if (tailVWorkersSet.size() <= 1) {
+            if (this.tailVWorkersSet.size() <= 1) {
                 return;
             }
             
             // Making sure last worker is the only tail worker,
             // by making it depend on specified tail workers.
-            VirtualWorker theTailVWorker = vworkers.get(vworkers.size()-1);
+            VirtualWorker theTailVWorker = this.vworkers.get(this.vworkers.size()-1);
             // Computing new ahead workers for the tail worker,
             // i.e. adding other tail workers to it (we know they
             // are not in it already since they are tail workers,
@@ -344,7 +343,7 @@ public class RingBufferWorkFlowBuilder {
             for (VirtualWorker avw : theTailVWorker.aheadVWorkers) {
                 newAheadVWorkersList.add(avw);
             }
-            for (VirtualWorker tailVWorker : tailVWorkersSet) {
+            for (VirtualWorker tailVWorker : this.tailVWorkersSet) {
                 if (tailVWorker == theTailVWorker) {
                     continue;
                 }
@@ -358,10 +357,10 @@ public class RingBufferWorkFlowBuilder {
                     newAheadVWorkers);
             theTailVWorker.aheadVWorkers = newAheadVWorkers;
             // In case it was also a head worker.
-            headVWorkersSet.remove(theTailVWorker);
+            this.headVWorkersSet.remove(theTailVWorker);
             // Tail workers set is now a singleton.
-            tailVWorkersSet.clear();
-            tailVWorkersSet.add(theTailVWorker);
+            this.tailVWorkersSet.clear();
+            this.tailVWorkersSet.add(theTailVWorker);
         }
     }
 

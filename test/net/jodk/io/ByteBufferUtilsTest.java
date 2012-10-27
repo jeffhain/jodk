@@ -338,10 +338,10 @@ public class ByteBufferUtilsTest extends AbstractBufferOpTezt {
     public void test_bufferCopy_ByteBuffer_int_ByteBuffer_int_int() {
         test_copyBytesOperation(new InterfaceCopyBytesOperation<MyTab>() {
             @Override
-            public void copyBytes(MyTab src, int srcFirstByteIndex, MyTab dest, int destFirstByteIndex, int byteSize) {
+            public void copyBytes(MyTab src, int srcFirstByteIndex, MyTab dst, int dstFirstByteIndex, int byteSize) {
                 src.myBufferOrder(src.order);
-                dest.myBufferOrder(dest.order);
-                ByteBufferUtils.bufferCopy(src.buffer, srcFirstByteIndex, dest.buffer, destFirstByteIndex, byteSize);
+                dst.myBufferOrder(dst.order);
+                ByteBufferUtils.bufferCopy(src.buffer, srcFirstByteIndex, dst.buffer, dstFirstByteIndex, byteSize);
             }
         });
     }
@@ -349,10 +349,10 @@ public class ByteBufferUtilsTest extends AbstractBufferOpTezt {
     public void test_bufferCopyBits_ByteBuffer_long_ByteBuffer_long_long() {
         test_copyBitsOperation(new InterfaceCopyBitsOperation<MyTab>() {
             @Override
-            public void copyBits(MyTab src, long srcFirstBitPos, MyTab dest, long destFirstBitPos, long bitSize) {
+            public void copyBits(MyTab src, long srcFirstBitPos, MyTab dst, long dstFirstBitPos, long bitSize) {
                 src.myBufferOrder(src.order);
-                dest.myBufferOrder(dest.order);
-                ByteBufferUtils.bufferCopyBits(src.buffer, srcFirstBitPos, dest.buffer, destFirstBitPos, bitSize);
+                dst.myBufferOrder(dst.order);
+                ByteBufferUtils.bufferCopyBits(src.buffer, srcFirstBitPos, dst.buffer, dstFirstBitPos, bitSize);
             }
         });
     }
@@ -388,7 +388,7 @@ public class ByteBufferUtilsTest extends AbstractBufferOpTezt {
         // To make sure offset is used.
         final int offset = 3;
         // To make sure limit is used, and not capacity.
-        final int surcapacity = 5;
+        final int surcapacity = 2;
         
         final ArrayList<ByteBuffer> bbs = new ArrayList<ByteBuffer>();
         final int capacity = limit + offset + surcapacity;

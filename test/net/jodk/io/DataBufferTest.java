@@ -299,10 +299,9 @@ public class DataBufferTest extends AbstractBufferOpTezt {
         try {
             DataBuffer.newInstance(new byte[0],0,-1);
             assertTrue(false);
-        } catch (IllegalArgumentException e) {
+        } catch (IndexOutOfBoundsException e) {
             // ok
         }
-        
         try {
             DataBuffer.newInstance(new byte[0],-1,0);
             assertTrue(false);
@@ -401,10 +400,9 @@ public class DataBufferTest extends AbstractBufferOpTezt {
         try {
             DataBuffer.wrap(new byte[0],0,-1);
             assertTrue(false);
-        } catch (IllegalArgumentException e) {
+        } catch (IndexOutOfBoundsException e) {
             // ok
         }
-        
         try {
             DataBuffer.wrap(new byte[0],-1,0);
             assertTrue(false);
@@ -1263,7 +1261,7 @@ public class DataBufferTest extends AbstractBufferOpTezt {
             try {
                 db.put(new byte[1],0,-1);
                 assertTrue(false);
-            } catch (IllegalArgumentException e) {
+            } catch (IndexOutOfBoundsException e) {
                 // ok
             }
 
@@ -1379,7 +1377,7 @@ public class DataBufferTest extends AbstractBufferOpTezt {
             try {
                 db.get(new byte[1],0,-1);
                 assertTrue(false);
-            } catch (IllegalArgumentException e) {
+            } catch (IndexOutOfBoundsException e) {
                 // ok
             }
 
@@ -1412,20 +1410,20 @@ public class DataBufferTest extends AbstractBufferOpTezt {
 
             for (int k=0;k<1000;k++) {
                 final int arrayCapacity = random.nextInt(13);
-                final byte[] dest = new byte[arrayCapacity];
-                fillRandom(dest);
+                final byte[] dst = new byte[arrayCapacity];
+                fillRandom(dst);
                 if (!db.isReadOnly()) {
                     fillRandom(db);
                 }
                 db.bitPosition(random.nextInt(8));
 
-                final int offset = (arrayCapacity == 0) ? 0 : random.nextInt(dest.length);
-                final int length = (arrayCapacity == 0) ? 0 : random.nextInt(dest.length - offset);
+                final int offset = (arrayCapacity == 0) ? 0 : random.nextInt(dst.length);
+                final int length = (arrayCapacity == 0) ? 0 : random.nextInt(dst.length - offset);
                 final long bitSize = length * 8L;
 
-                if (dest.length * 8L > db.bitsRemaining()) {
+                if (dst.length * 8L > db.bitsRemaining()) {
                     try {
-                        db.get(dest);
+                        db.get(dst);
                     } catch (BufferUnderflowException e) {
                         // ok
                     }
@@ -1433,7 +1431,7 @@ public class DataBufferTest extends AbstractBufferOpTezt {
 
                 if (bitSize > db.bitsRemaining()) {
                     try {
-                        db.get(dest, offset, length);
+                        db.get(dst, offset, length);
                     } catch (BufferUnderflowException e) {
                         // ok
                     }
@@ -1444,13 +1442,13 @@ public class DataBufferTest extends AbstractBufferOpTezt {
                     final long initialBitPosition = db.bitPosition();
 
                     byte[] initialDBContent = cloneContentUpToCapacity(db);
-                    byte[] expectedContent = cloneContent(dest);
+                    byte[] expectedContent = cloneContent(dst);
                     ByteArrayUtils.arrayCopyBits(initialDBContent, initialBitPosition, expectedContent, offset * 8L, bitSize, initialOrder);
 
-                    if ((offset == 0) && (length == dest.length) && random.nextBoolean()) {
-                        assertSame(db, db.get(dest));
+                    if ((offset == 0) && (length == dst.length) && random.nextBoolean()) {
+                        assertSame(db, db.get(dst));
                     } else {
-                        assertSame(db, db.get(dest, offset, length));
+                        assertSame(db, db.get(dst, offset, length));
                     }
 
                     assertEquals(initialOrder, db.order());
@@ -1467,8 +1465,8 @@ public class DataBufferTest extends AbstractBufferOpTezt {
                     db.limit(initialLimit);
 
                     // Retrieved content.
-                    for (int i=0;i<dest.length;i++) {
-                        assertEquals(expectedContent[i], dest[i]);
+                    for (int i=0;i<dst.length;i++) {
+                        assertEquals(expectedContent[i], dst[i]);
                     }
                 }
             }
@@ -2437,10 +2435,10 @@ public class DataBufferTest extends AbstractBufferOpTezt {
     public void test_bufferCopy_DataBuffer_int_DataBuffer_int_int() {
         test_copyBytesOperation(new InterfaceCopyBytesOperation<MyTab>() {
             @Override
-            public void copyBytes(MyTab src, int srcFirstByteIndex, MyTab dest, int destFirstByteIndex, int byteSize) {
+            public void copyBytes(MyTab src, int srcFirstByteIndex, MyTab dst, int dstFirstByteIndex, int byteSize) {
                 src.myBufferOrder(src.order);
-                dest.myBufferOrder(dest.order);
-                DataBuffer.bufferCopy(src.buffer, srcFirstByteIndex, dest.buffer, destFirstByteIndex, byteSize);
+                dst.myBufferOrder(dst.order);
+                DataBuffer.bufferCopy(src.buffer, srcFirstByteIndex, dst.buffer, dstFirstByteIndex, byteSize);
             }
         });
     }
@@ -2448,10 +2446,10 @@ public class DataBufferTest extends AbstractBufferOpTezt {
     public void test_bufferCopyBits_DataBuffer_long_DataBuffer_long_long() {
         test_copyBitsOperation(new InterfaceCopyBitsOperation<MyTab>() {
             @Override
-            public void copyBits(MyTab src, long srcFirstBitPos, MyTab dest, long destFirstBitPos, long bitSize) {
+            public void copyBits(MyTab src, long srcFirstBitPos, MyTab dst, long dstFirstBitPos, long bitSize) {
                 src.myBufferOrder(src.order);
-                dest.myBufferOrder(dest.order);
-                DataBuffer.bufferCopyBits(src.buffer, srcFirstBitPos, dest.buffer, destFirstBitPos, bitSize);
+                dst.myBufferOrder(dst.order);
+                DataBuffer.bufferCopyBits(src.buffer, srcFirstBitPos, dst.buffer, dstFirstBitPos, bitSize);
             }
         });
     }
@@ -2682,47 +2680,47 @@ public class DataBufferTest extends AbstractBufferOpTezt {
     }
 
     /**
-     * @return Various ByteBuffers with various offset and capacity,
-     *         various limit and order, and random content,
-     *         but always with position at 0, and no mark.
+     * @return Various ByteBuffers with non-zero offset and
+     *         limit-to-capacity, various order, random content,
+     *         position at 0, and no mark.
      */
     private ByteBuffer[] variousBB(int limit) {
         ArrayList<ByteBuffer> bbs = new ArrayList<ByteBuffer>();
+        
         // To make sure limit is used, and not capacity.
-        for (int limitToCapacity : new int[]{0,3}) {
-            final int capacity = limit + limitToCapacity;
-            // To make sure offset is used.
-            for (int offset : new int[]{0,5}) {
-                final int arrayCapacity = offset + capacity;
-                for (ByteOrder order : new ByteOrder[]{ByteOrder.BIG_ENDIAN,ByteOrder.LITTLE_ENDIAN}) {
-                    ArrayList<ByteBuffer> localBBs = new ArrayList<ByteBuffer>();
+        final int limitToCapacity = 2;
+        // To make sure offset is used.
+        final int offset = 3;
 
-                    localBBs.add(fillRandom(ByteBuffer.allocate(arrayCapacity)));
-                    localBBs.add(fillRandom(ByteBuffer.allocateDirect(arrayCapacity)));
-                    localBBs.add(fillRandom(ByteBuffer.allocate(arrayCapacity)).asReadOnlyBuffer());
-                    localBBs.add(fillRandom(ByteBuffer.allocateDirect(arrayCapacity)).asReadOnlyBuffer());
-                    if (offset != 0) {
-                        for (int i=0;i<localBBs.size();i++) {
-                            ByteBuffer bb = localBBs.get(i);
-                            bb.position(offset);
-                            bb = bb.slice();
-                            localBBs.set(i, bb);
-                        }
-                    }
+        final int capacity = limit + limitToCapacity;
+        final int arrayCapacity = offset + capacity;
+        for (ByteOrder order : new ByteOrder[]{ByteOrder.BIG_ENDIAN,ByteOrder.LITTLE_ENDIAN}) {
+            ArrayList<ByteBuffer> localBBs = new ArrayList<ByteBuffer>();
 
-                    if (limit != capacity) {
-                        for (ByteBuffer bb : localBBs) {
-                            bb.limit(limit);
-                        }
-                    }
-
-                    for (ByteBuffer bb : localBBs) {
-                        bb.order(order);
-                    }
-
-                    bbs.addAll(localBBs);
+            localBBs.add(fillRandom(ByteBuffer.allocate(arrayCapacity)));
+            localBBs.add(fillRandom(ByteBuffer.allocateDirect(arrayCapacity)));
+            localBBs.add(fillRandom(ByteBuffer.allocate(arrayCapacity)).asReadOnlyBuffer());
+            localBBs.add(fillRandom(ByteBuffer.allocateDirect(arrayCapacity)).asReadOnlyBuffer());
+            if (offset != 0) {
+                for (int i=0;i<localBBs.size();i++) {
+                    ByteBuffer bb = localBBs.get(i);
+                    bb.position(offset);
+                    bb = bb.slice();
+                    localBBs.set(i, bb);
                 }
             }
+
+            if (limit != capacity) {
+                for (ByteBuffer bb : localBBs) {
+                    bb.limit(limit);
+                }
+            }
+
+            for (ByteBuffer bb : localBBs) {
+                bb.order(order);
+            }
+
+            bbs.addAll(localBBs);
         }
 
         for (ByteBuffer bb : bbs) {
@@ -2741,9 +2739,9 @@ public class DataBufferTest extends AbstractBufferOpTezt {
     }
 
     /**
-     * @return Various DataBuffers with various offset and capacity,
-     *         various limit and order, and random content,
-     *         but always with bit position at 0, and no mark.
+     * @return Various DataBuffers with non-zero offset and
+     *         limit-to-capacity, various order, random content,
+     *         position at 0, and no mark.
      */
     private DataBuffer[] variousDB(int limit) {
         ArrayList<DataBuffer> dbs = new ArrayList<DataBuffer>();
@@ -2751,39 +2749,37 @@ public class DataBufferTest extends AbstractBufferOpTezt {
         /*
          * byte[]-backed DataBuffers
          */
+        
+        // To make sure limit is used, and not capacity.
+        final int limitToCapacity = 2;
+        // To make sure offset is used.
+        final int offset = 3;
+        // To hopefully generate trouble if array capacity is used
+        // somewhere instead of buffer capacity.
+        // This is only relevant for byte[]-backed DataBuffers, since
+        // ByteBuffers always use last array byte as bound for their capacity.
+        final int capacityToArrayCapacity = 5;
 
         for (ByteOrder order : new ByteOrder[]{ByteOrder.BIG_ENDIAN,ByteOrder.LITTLE_ENDIAN}) {
-            // To make sure limit is used, and not capacity.
-            for (int limitToCapacity : new int[]{0,3}) {
-                final int capacity = limit + limitToCapacity;
-                // To hopefully generate trouble if array capacity is used
-                // somewhere instead of buffer capacity.
-                // This is only relevant for byte[]-backed DataBuffers, since
-                // ByteBuffers always use last array byte as bound for their capacity.
-                for (int capacityToArrayCapacity : new int[]{0,4}) {
-                    // Offset to make sure offset is used.
-                    for (int offset : new int[]{0,5}) {
-                        ArrayList<DataBuffer> localDBs = new ArrayList<DataBuffer>();
-                        
-                        final int arrayCapacity = offset + capacity + capacityToArrayCapacity;
+            final int capacity = limit + limitToCapacity;
+            ArrayList<DataBuffer> localDBs = new ArrayList<DataBuffer>();
 
-                        localDBs.add(DataBuffer.newInstance(fillRandom(new byte[arrayCapacity]), offset, capacity));
-                        localDBs.add(DataBuffer.newInstance(fillRandom(new byte[arrayCapacity]), offset, capacity).asReadOnlyBuffer());
+            final int arrayCapacity = offset + capacity + capacityToArrayCapacity;
 
-                        if (limit != capacity) {
-                            for (DataBuffer db : localDBs) {
-                                db.limit(limit);
-                            }
-                        }
+            localDBs.add(DataBuffer.newInstance(fillRandom(new byte[arrayCapacity]), offset, capacity));
+            localDBs.add(DataBuffer.newInstance(fillRandom(new byte[arrayCapacity]), offset, capacity).asReadOnlyBuffer());
 
-                        for (DataBuffer db : localDBs) {
-                            db.order(order);
-                        }
-                        
-                        dbs.addAll(localDBs);
-                    }
+            if (limit != capacity) {
+                for (DataBuffer db : localDBs) {
+                    db.limit(limit);
                 }
             }
+
+            for (DataBuffer db : localDBs) {
+                db.order(order);
+            }
+
+            dbs.addAll(localDBs);
         }
 
         /*

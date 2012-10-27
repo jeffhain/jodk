@@ -155,11 +155,11 @@ public abstract class AbstractBufferOpTezt extends TestCase {
      */
 
     interface InterfaceCopyBytesOperation<T extends InterfaceTab> {
-        public void copyBytes(T src, int srcFirstByteIndex, T dest, int destFirstByteIndex, int byteSize);
+        public void copyBytes(T src, int srcFirstByteIndex, T dst, int dstFirstByteIndex, int byteSize);
     }
 
     interface InterfaceCopyBitsOperation<T extends InterfaceTab> {
-        public void copyBits(T src, long srcFirstBitPos, T dest, long destFirstBitPos, long bitSize);
+        public void copyBits(T src, long srcFirstBitPos, T dst, long dstFirstBitPos, long bitSize);
     }
 
     /*
@@ -738,18 +738,18 @@ public abstract class AbstractBufferOpTezt extends TestCase {
          */
 
         for (InterfaceTab src : newTabs(0,newTabs(1,null))) {
-            for (InterfaceTab dest : newTabs(0,newTabs(1,null))) {
+            for (InterfaceTab dst : newTabs(0,newTabs(1,null))) {
                 for (ByteOrder srcOrder : new ByteOrder[]{null,ByteOrder.BIG_ENDIAN,ByteOrder.LITTLE_ENDIAN}) {
-                    for (ByteOrder destOrder : new ByteOrder[]{null,ByteOrder.BIG_ENDIAN,ByteOrder.LITTLE_ENDIAN}) {
+                    for (ByteOrder dstOrder : new ByteOrder[]{null,ByteOrder.BIG_ENDIAN,ByteOrder.LITTLE_ENDIAN}) {
                         if (src != null) {
                             src.order(srcOrder);
                         }
-                        if (dest != null) {
-                            dest.order(destOrder);
+                        if (dst != null) {
+                            dst.order(dstOrder);
                         }
-                        if ((src == null) || (dest == null) || (srcOrder == null) || (destOrder == null)) {
+                        if ((src == null) || (dst == null) || (srcOrder == null) || (dstOrder == null)) {
                             try {
-                                op.copyBytes(src, 0, dest, 0, 0);
+                                op.copyBytes(src, 0, dst, 0, 0);
                                 assertTrue(false);
                             } catch (NullPointerException e) {
                                 // ok
@@ -758,7 +758,7 @@ public abstract class AbstractBufferOpTezt extends TestCase {
                             // Exception for nulls has priority over
                             // exceptions for bit size and bit range.
                             try {
-                                op.copyBytes(src, -1, dest, -1, -1);
+                                op.copyBytes(src, -1, dst, -1, -1);
                                 assertTrue(false);
                             } catch (NullPointerException e) {
                                 // ok
@@ -774,38 +774,38 @@ public abstract class AbstractBufferOpTezt extends TestCase {
          */
 
         for (int srcLength : new int[]{0,1,2}) {
-            for (int destLength : new int[]{0,1,2}) {
+            for (int dstLength : new int[]{0,1,2}) {
                 for (InterfaceTab src : newTabs(srcLength)) {
-                    for (InterfaceTab dest : newTabs(destLength)) {
+                    for (InterfaceTab dst : newTabs(dstLength)) {
                         for (boolean srcTooLow : new boolean[]{false,true}) {
-                            for (boolean destTooLow : new boolean[]{false,true}) {
+                            for (boolean dstTooLow : new boolean[]{false,true}) {
                                 for (boolean byteSizeTooHigh : new boolean[]{false,true}) {
                                     final int srcFirstByteIndex = srcTooLow ? -1 : 0;
-                                    final int destFirstByteIndex = destTooLow ? -1 : 0;
+                                    final int dstFirstByteIndex = dstTooLow ? -1 : 0;
 
                                     // Making sure orders are identical.
                                     ByteOrder order = randomOrder();
                                     src.order(order);
-                                    dest.order(order);
+                                    dst.order(order);
 
                                     final int byteSize = (byteSizeTooHigh ? 1 : 0)
                                             + Math.min(
                                                     srcLength - srcFirstByteIndex,
-                                                    destLength - destFirstByteIndex);
-                                    if ((!(dest.isReadOnly() && (byteSize > 0))) // Would throw ReadOnlyBufferException.
-                                            && (srcTooLow || destTooLow || byteSizeTooHigh)) {
+                                                    dstLength - dstFirstByteIndex);
+                                    if ((!(dst.isReadOnly() && (byteSize > 0))) // Would throw ReadOnlyBufferException.
+                                            && (srcTooLow || dstTooLow || byteSizeTooHigh)) {
                                         // Bad byte size, bad byte range.
                                         // Exception for bad byte size (on its own),
                                         // has priority over exception on byte range.
                                         try {
-                                            op.copyBytes(src, srcFirstByteIndex, dest, destFirstByteIndex, -1);
+                                            op.copyBytes(src, srcFirstByteIndex, dst, dstFirstByteIndex, -1);
                                             assertTrue(false);
-                                        } catch (IllegalArgumentException e) {
+                                        } catch (IndexOutOfBoundsException e) {
                                             // ok
                                         }
                                         // Bad byte range.
                                         try {
-                                            op.copyBytes(src, srcFirstByteIndex, dest, destFirstByteIndex, byteSize);
+                                            op.copyBytes(src, srcFirstByteIndex, dst, dstFirstByteIndex, byteSize);
                                             assertTrue(false);
                                         } catch (IndexOutOfBoundsException e) {
                                             // ok
@@ -813,13 +813,13 @@ public abstract class AbstractBufferOpTezt extends TestCase {
                                     } else {
                                         // Bad byte size.
                                         try {
-                                            op.copyBytes(src, srcFirstByteIndex, dest, destFirstByteIndex, -1);
+                                            op.copyBytes(src, srcFirstByteIndex, dst, dstFirstByteIndex, -1);
                                             assertTrue(false);
-                                        } catch (IllegalArgumentException e) {
+                                        } catch (IndexOutOfBoundsException e) {
                                             // ok
                                         }
                                         // Good byte size and byte range.
-                                        copyWithExceptionTest(op, src, srcFirstByteIndex, dest, destFirstByteIndex, byteSize);
+                                        copyWithExceptionTest(op, src, srcFirstByteIndex, dst, dstFirstByteIndex, byteSize);
                                     }
                                 }
                             }
@@ -835,13 +835,13 @@ public abstract class AbstractBufferOpTezt extends TestCase {
 
         for (InterfaceTab[] pair : newTabPairs(1,1)) {
             final InterfaceTab src = pair[0];
-            final InterfaceTab dest = pair[1];
-            if (dest.isReadOnly()) {
+            final InterfaceTab dst = pair[1];
+            if (dst.isReadOnly()) {
                 continue;
             }
-            if (src.order() != dest.order()) {
+            if (src.order() != dst.order()) {
                 try {
-                    op.copyBytes(src, 0, dest, 0, 1);
+                    op.copyBytes(src, 0, dst, 0, 1);
                     assertTrue(false);
                 } catch (IllegalArgumentException e) {
                     // ok
@@ -866,16 +866,16 @@ public abstract class AbstractBufferOpTezt extends TestCase {
         for (int k=0;k<NBR_OF_TAB_COPY_LIMITS;k++) {
             // Sometimes small, sometimes large.
             final int srcLimit = 1 + random.nextInt(lengthLo) + (random.nextBoolean() ? random.nextInt(lengthHi) : 0);
-            final int destLimit = 1 + random.nextInt(lengthLo) + (random.nextBoolean() ? random.nextInt(lengthHi) : 0);
+            final int dstLimit = 1 + random.nextInt(lengthLo) + (random.nextBoolean() ? random.nextInt(lengthHi) : 0);
             
-            for (InterfaceTab[] pair : newTabPairs(srcLimit,destLimit)) {
+            for (InterfaceTab[] pair : newTabPairs(srcLimit,dstLimit)) {
                 final InterfaceTab src = pair[0];
-                final InterfaceTab dest = pair[1];
-                if (dest.isReadOnly()) {
+                final InterfaceTab dst = pair[1];
+                if (dst.isReadOnly()) {
                     // Tested above; would just slow things down.
                     continue;
                 }
-                if ((src.limit() == 0) || (dest.limit() == 0)) {
+                if ((src.limit() == 0) || (dst.limit() == 0)) {
                     // Can't do much.
                     continue;
                 }
@@ -883,8 +883,8 @@ public abstract class AbstractBufferOpTezt extends TestCase {
                 final boolean shared = (pair.length == 3);
                 
                 // Erasing risk: considering that copy is done by iterating in a direction such
-                // as if src and dest are identical, data to copy is not erased with copied data.
-                final boolean copyErasingRisk = shared && (!(src.hasArrayWritableOrNot() && dest.hasArrayWritableOrNot()));
+                // as if src and dst are identical, data to copy is not erased with copied data.
+                final boolean copyErasingRisk = shared && (!(src.hasArrayWritableOrNot() && dst.hasArrayWritableOrNot()));
 
                 /*
                  * src
@@ -892,14 +892,14 @@ public abstract class AbstractBufferOpTezt extends TestCase {
                 final int srcByteLength = src.limit();
                 final int srcFirstByteIndex = random.nextInt(srcByteLength);
                 /*
-                 * dest
+                 * dst
                  */
-                final int destByteLength = dest.limit();
-                final int destFirstByteIndex = random.nextInt(destByteLength);
+                final int dstByteLength = dst.limit();
+                final int dstFirstByteIndex = random.nextInt(dstByteLength);
                 /*
                  * byte size
                  */
-                final int maxByteSize = Math.min(srcByteLength - srcFirstByteIndex, destByteLength - destFirstByteIndex);
+                final int maxByteSize = Math.min(srcByteLength - srcFirstByteIndex, dstByteLength - dstFirstByteIndex);
                 final int byteSize = 1 + random.nextInt(maxByteSize);
                 /*
                  * order
@@ -909,16 +909,16 @@ public abstract class AbstractBufferOpTezt extends TestCase {
                  * Need to set order before converting buffers to strings.
                  */
                 src.order(order);
-                dest.order(order);
+                dst.order(order);
                 /*
                  * computing expected result
                  */
                 final String srcBits = toBits(src, order);
-                final String destBits = toBits(dest, order);
+                final String dstBits = toBits(dst, order);
                 /*
                  * copy
                  */
-                if (!copyWithExceptionTest(op, src, srcFirstByteIndex, dest, destFirstByteIndex, byteSize)) {
+                if (!copyWithExceptionTest(op, src, srcFirstByteIndex, dst, dstFirstByteIndex, byteSize)) {
                     continue;
                 }
                 /*
@@ -931,17 +931,17 @@ public abstract class AbstractBufferOpTezt extends TestCase {
                 if (copyErasingRisk) {
                     // Copy might have had trouble, but that's in the spec.
                 } else {
-                    final String expectedBits = expectedBits(srcBits, srcFirstByteIndex * 8, destBits, destFirstByteIndex * 8, byteSize * 8);
-                    final String resultBits = toBits(dest, order);
+                    final String expectedBits = expectedBits(srcBits, srcFirstByteIndex * 8, dstBits, dstFirstByteIndex * 8, byteSize * 8);
+                    final String resultBits = toBits(dst, order);
                     final boolean ok = resultBits.equals(expectedBits);
                     if (!ok) {
-                        System.out.println("shared             = "+shared);
-                        System.out.println("order              = "+order);
-                        System.out.println("srcFirstByteIndex  = "+srcFirstByteIndex);
-                        System.out.println("destFirstByteIndex = "+destFirstByteIndex);
-                        System.out.println("byteSize           = "+byteSize);
+                        System.out.println("shared            = "+shared);
+                        System.out.println("order             = "+order);
+                        System.out.println("srcFirstByteIndex = "+srcFirstByteIndex);
+                        System.out.println("dstFirstByteIndex = "+dstFirstByteIndex);
+                        System.out.println("byteSize          = "+byteSize);
                         System.out.println("srcBits      = "+srcBits);
-                        System.out.println("destBits     = "+destBits);
+                        System.out.println("dstBits      = "+dstBits);
                         System.out.println("expectedBits = "+expectedBits);
                         System.out.println("resultBits   = "+resultBits);
                         System.out.flush();
@@ -959,18 +959,18 @@ public abstract class AbstractBufferOpTezt extends TestCase {
          */
 
         for (InterfaceTab src : newTabs(0,newTabs(1,null))) {
-            for (InterfaceTab dest : newTabs(0,newTabs(1,null))) {
+            for (InterfaceTab dst : newTabs(0,newTabs(1,null))) {
                 for (ByteOrder srcOrder : new ByteOrder[]{null,ByteOrder.BIG_ENDIAN,ByteOrder.LITTLE_ENDIAN}) {
-                    for (ByteOrder destOrder : new ByteOrder[]{null,ByteOrder.BIG_ENDIAN,ByteOrder.LITTLE_ENDIAN}) {
+                    for (ByteOrder dstOrder : new ByteOrder[]{null,ByteOrder.BIG_ENDIAN,ByteOrder.LITTLE_ENDIAN}) {
                         if (src != null) {
                             src.order(srcOrder);
                         }
-                        if (dest != null) {
-                            dest.order(destOrder);
+                        if (dst != null) {
+                            dst.order(dstOrder);
                         }
-                        if ((src == null) || (dest == null) || (srcOrder == null) || (destOrder == null)) {
+                        if ((src == null) || (dst == null) || (srcOrder == null) || (dstOrder == null)) {
                             try {
-                                op.copyBits(src, 0L, dest, 0L, 0L);
+                                op.copyBits(src, 0L, dst, 0L, 0L);
                                 assertTrue(false);
                             } catch (NullPointerException e) {
                                 // ok
@@ -979,7 +979,7 @@ public abstract class AbstractBufferOpTezt extends TestCase {
                             // Exception for nulls has priority over
                             // exceptions for bit size and bit range.
                             try {
-                                op.copyBits(src, -1L, dest, -1L, -1L);
+                                op.copyBits(src, -1L, dst, -1L, -1L);
                                 assertTrue(false);
                             } catch (NullPointerException e) {
                                 // ok
@@ -995,38 +995,38 @@ public abstract class AbstractBufferOpTezt extends TestCase {
          */
 
         for (int srcLength : new int[]{0,1,2}) {
-            for (int destLength : new int[]{0,1,2}) {
+            for (int dstLength : new int[]{0,1,2}) {
                 for (InterfaceTab src : newTabs(srcLength)) {
-                    for (InterfaceTab dest : newTabs(destLength)) {
+                    for (InterfaceTab dst : newTabs(dstLength)) {
                         for (boolean srcTooLow : new boolean[]{false,true}) {
-                            for (boolean destTooLow : new boolean[]{false,true}) {
+                            for (boolean dstTooLow : new boolean[]{false,true}) {
                                 for (boolean bitSizeTooHigh : new boolean[]{false,true}) {
                                     final long srcFirstBitPos = srcTooLow ? -1 : 0;
-                                    final long destFirstBitPos = destTooLow ? -1 : 0;
+                                    final long dstFirstBitPos = dstTooLow ? -1 : 0;
 
                                     // Making sure orders are identical.
                                     ByteOrder order = randomOrder();
                                     src.order(order);
-                                    dest.order(order);
+                                    dst.order(order);
 
                                     final long bitSize = (bitSizeTooHigh ? 1 : 0)
                                             + Math.min(
                                                     srcLength * 8L - srcFirstBitPos,
-                                                    destLength * 8L - destFirstBitPos);
-                                    if ((!(dest.isReadOnly() && (bitSize > 0))) // Would throw ReadOnlyBufferException.
-                                            && (srcTooLow || destTooLow || bitSizeTooHigh)) {
+                                                    dstLength * 8L - dstFirstBitPos);
+                                    if ((!(dst.isReadOnly() && (bitSize > 0))) // Would throw ReadOnlyBufferException.
+                                            && (srcTooLow || dstTooLow || bitSizeTooHigh)) {
                                         // Bad bit size, bad bit range.
                                         // Exception for bad bit size (on its own),
                                         // has priority over exception on bit range.
                                         try {
-                                            op.copyBits(src, srcFirstBitPos, dest, destFirstBitPos, -1L);
+                                            op.copyBits(src, srcFirstBitPos, dst, dstFirstBitPos, -1L);
                                             assertTrue(false);
-                                        } catch (IllegalArgumentException e) {
+                                        } catch (IndexOutOfBoundsException e) {
                                             // ok
                                         }
                                         // Bad bit range.
                                         try {
-                                            op.copyBits(src, srcFirstBitPos, dest, destFirstBitPos, bitSize);
+                                            op.copyBits(src, srcFirstBitPos, dst, dstFirstBitPos, bitSize);
                                             assertTrue(false);
                                         } catch (IndexOutOfBoundsException e) {
                                             // ok
@@ -1034,13 +1034,13 @@ public abstract class AbstractBufferOpTezt extends TestCase {
                                     } else {
                                         // Bad bit size.
                                         try {
-                                            op.copyBits(src, srcFirstBitPos, dest, destFirstBitPos, -1L);
+                                            op.copyBits(src, srcFirstBitPos, dst, dstFirstBitPos, -1L);
                                             assertTrue(false);
-                                        } catch (IllegalArgumentException e) {
+                                        } catch (IndexOutOfBoundsException e) {
                                             // ok
                                         }
                                         // Good bit size and bit range.
-                                        copyWithExceptionTest(op, src, srcFirstBitPos, dest, destFirstBitPos, bitSize);
+                                        copyWithExceptionTest(op, src, srcFirstBitPos, dst, dstFirstBitPos, bitSize);
                                     }
                                 }
                             }
@@ -1056,13 +1056,13 @@ public abstract class AbstractBufferOpTezt extends TestCase {
 
         for (InterfaceTab[] pair : newTabPairs(1,1)) {
             final InterfaceTab src = pair[0];
-            final InterfaceTab dest = pair[1];
-            if (dest.isReadOnly()) {
+            final InterfaceTab dst = pair[1];
+            if (dst.isReadOnly()) {
                 continue;
             }
-            if (src.order() != dest.order()) {
+            if (src.order() != dst.order()) {
                 try {
-                    op.copyBits(src, 0L, dest, 0L, 1L);
+                    op.copyBits(src, 0L, dst, 0L, 1L);
                     assertTrue(false);
                 } catch (IllegalArgumentException e) {
                     // ok
@@ -1087,16 +1087,16 @@ public abstract class AbstractBufferOpTezt extends TestCase {
         for (int k=0;k<NBR_OF_TAB_COPY_LIMITS;k++) {
             // Sometimes small, sometimes large.
             final int srcLimit = 1 + random.nextInt(lengthLo) + (random.nextBoolean() ? random.nextInt(lengthHi) : 0);
-            final int destLimit = 1 + random.nextInt(lengthLo) + (random.nextBoolean() ? random.nextInt(lengthHi) : 0);
+            final int dstLimit = 1 + random.nextInt(lengthLo) + (random.nextBoolean() ? random.nextInt(lengthHi) : 0);
             
-            for (InterfaceTab[] pair : newTabPairs(srcLimit,destLimit)) {
+            for (InterfaceTab[] pair : newTabPairs(srcLimit,dstLimit)) {
                 final InterfaceTab src = pair[0];
-                final InterfaceTab dest = pair[1];
-                if (dest.isReadOnly()) {
+                final InterfaceTab dst = pair[1];
+                if (dst.isReadOnly()) {
                     // Tested above; would just slow things down.
                     continue;
                 }
-                if ((src.limit() == 0) || (dest.limit() == 0)) {
+                if ((src.limit() == 0) || (dst.limit() == 0)) {
                     // Can't do much.
                     continue;
                 }
@@ -1104,8 +1104,8 @@ public abstract class AbstractBufferOpTezt extends TestCase {
                 final boolean shared = (pair.length == 3);
                 
                 // Erasing risk: considering that copy is done by iterating in a direction such
-                // as if src and dest are identical, data to copy is not erased with copied data.
-                final boolean copyErasingRisk = shared && (!(src.hasArrayWritableOrNot() && dest.hasArrayWritableOrNot()));
+                // as if src and dst are identical, data to copy is not erased with copied data.
+                final boolean copyErasingRisk = shared && (!(src.hasArrayWritableOrNot() && dst.hasArrayWritableOrNot()));
 
                 /*
                  * src
@@ -1113,14 +1113,14 @@ public abstract class AbstractBufferOpTezt extends TestCase {
                 final int srcBitLength = src.limit() * 8;
                 final int srcFirstBitPos = random.nextInt(srcBitLength);
                 /*
-                 * dest
+                 * dst
                  */
-                final int destBitLength = dest.limit() * 8;
-                final int destFirstBitPos = random.nextInt(destBitLength);
+                final int dstBitLength = dst.limit() * 8;
+                final int dstFirstBitPos = random.nextInt(dstBitLength);
                 /*
                  * bit size
                  */
-                final int maxBitSize = Math.min(srcBitLength - srcFirstBitPos, destBitLength - destFirstBitPos);
+                final int maxBitSize = Math.min(srcBitLength - srcFirstBitPos, dstBitLength - dstFirstBitPos);
                 final int bitSize = 1 + random.nextInt(maxBitSize);
                 /*
                  * order
@@ -1130,16 +1130,16 @@ public abstract class AbstractBufferOpTezt extends TestCase {
                  * Need to set order before converting buffers to strings.
                  */
                 src.order(order);
-                dest.order(order);
+                dst.order(order);
                 /*
                  * computing expected result
                  */
                 final String srcBits = toBits(src, order);
-                final String destBits = toBits(dest, order);
+                final String dstBits = toBits(dst, order);
                 /*
                  * copy
                  */
-                if (!copyWithExceptionTest(op, src, srcFirstBitPos, dest, destFirstBitPos, bitSize)) {
+                if (!copyWithExceptionTest(op, src, srcFirstBitPos, dst, dstFirstBitPos, bitSize)) {
                     continue;
                 }
                 /*
@@ -1152,17 +1152,17 @@ public abstract class AbstractBufferOpTezt extends TestCase {
                 if (copyErasingRisk) {
                     // Copy might have had trouble, but that's in the spec.
                 } else {
-                    final String expectedBits = expectedBits(srcBits, srcFirstBitPos, destBits, destFirstBitPos, bitSize);
-                    final String resultBits = toBits(dest, order);
+                    final String expectedBits = expectedBits(srcBits, srcFirstBitPos, dstBits, dstFirstBitPos, bitSize);
+                    final String resultBits = toBits(dst, order);
                     final boolean ok = resultBits.equals(expectedBits);
                     if (!ok) {
-                        System.out.println("shared          = "+shared);
-                        System.out.println("order           = "+order);
-                        System.out.println("srcFirstBitPos  = "+srcFirstBitPos);
-                        System.out.println("destFirstBitPos = "+destFirstBitPos);
-                        System.out.println("bitSize         = "+bitSize);
+                        System.out.println("shared         = "+shared);
+                        System.out.println("order          = "+order);
+                        System.out.println("srcFirstBitPos = "+srcFirstBitPos);
+                        System.out.println("dstFirstBitPos = "+dstFirstBitPos);
+                        System.out.println("bitSize        = "+bitSize);
                         System.out.println("srcBits      = "+srcBits);
-                        System.out.println("destBits     = "+destBits);
+                        System.out.println("dstBits      = "+dstBits);
                         System.out.println("expectedBits = "+expectedBits);
                         System.out.println("resultBits   = "+resultBits);
                         System.out.flush();
@@ -1187,7 +1187,7 @@ public abstract class AbstractBufferOpTezt extends TestCase {
             try {
                 op.toString(tab, firstByteIndex = 0, byteSize = -1, radix = 10);
                 assertFalse(true);
-            } catch (IllegalArgumentException e) {
+            } catch (IndexOutOfBoundsException e) {
                 // ok
             }
 
@@ -1271,7 +1271,7 @@ public abstract class AbstractBufferOpTezt extends TestCase {
             try {
                 op.toStringBits(tab, firstBitPos = 0, bitSize = -1, bigEndian = true);
                 assertFalse(true);
-            } catch (IllegalArgumentException e) {
+            } catch (IndexOutOfBoundsException e) {
                 // ok
             }
 
@@ -1482,20 +1482,20 @@ public abstract class AbstractBufferOpTezt extends TestCase {
             InterfaceCopyBytesOperation op,
             InterfaceTab src,
             int srcFirstByteIndex,
-            InterfaceTab dest,
-            int destFirstByteIndex,
+            InterfaceTab dst,
+            int dstFirstByteIndex,
             int byteSize) {
         if ((byteSize > 0)
-                && dest.isReadOnly()) {
+                && dst.isReadOnly()) {
             try {
-                op.copyBytes(src, srcFirstByteIndex, dest, destFirstByteIndex, byteSize);
+                op.copyBytes(src, srcFirstByteIndex, dst, dstFirstByteIndex, byteSize);
                 assertTrue(false);
             } catch (ReadOnlyBufferException e) {
                 // ok
             }
             return false;
         } else {
-            op.copyBytes(src, srcFirstByteIndex, dest, destFirstByteIndex, byteSize);
+            op.copyBytes(src, srcFirstByteIndex, dst, dstFirstByteIndex, byteSize);
             return true;
         }
     }
@@ -1509,20 +1509,20 @@ public abstract class AbstractBufferOpTezt extends TestCase {
             InterfaceCopyBitsOperation op,
             InterfaceTab src,
             long srcFirstBitPos,
-            InterfaceTab dest,
-            long destFirstBitPos,
+            InterfaceTab dst,
+            long dstFirstBitPos,
             long bitSize) {
         if ((bitSize > 0)
-                && dest.isReadOnly()) {
+                && dst.isReadOnly()) {
             try {
-                op.copyBits(src, srcFirstBitPos, dest, destFirstBitPos, bitSize);
+                op.copyBits(src, srcFirstBitPos, dst, dstFirstBitPos, bitSize);
                 assertTrue(false);
             } catch (ReadOnlyBufferException e) {
                 // ok
             }
             return false;
         } else {
-            op.copyBits(src, srcFirstBitPos, dest, destFirstBitPos, bitSize);
+            op.copyBits(src, srcFirstBitPos, dst, dstFirstBitPos, bitSize);
             return true;
         }
     }
@@ -1612,16 +1612,16 @@ public abstract class AbstractBufferOpTezt extends TestCase {
     private String expectedBits(
             final String srcBits,
             int srcBitPos,
-            final String destBits,
-            int destBitPos,
+            final String dstBits,
+            int dstBitPos,
             int bitSize) {
-        final StringBuilder sb = new StringBuilder(destBits.length());
-        for (int destI=0;destI<destBits.length();destI++) {
-            if ((destI >= destBitPos) && (destI <= destBitPos + bitSize - 1)) {
-                final int srcI = srcBitPos + (destI - destBitPos);
+        final StringBuilder sb = new StringBuilder(dstBits.length());
+        for (int dstI=0;dstI<dstBits.length();dstI++) {
+            if ((dstI >= dstBitPos) && (dstI <= dstBitPos + bitSize - 1)) {
+                final int srcI = srcBitPos + (dstI - dstBitPos);
                 sb.append(srcBits.charAt(srcI));
             } else {
-                sb.append(destBits.charAt(destI));
+                sb.append(dstBits.charAt(dstI));
             }
         }
         return sb.toString();

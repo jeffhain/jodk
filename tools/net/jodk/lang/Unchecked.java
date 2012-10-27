@@ -21,9 +21,6 @@ import java.util.concurrent.TimeUnit;
 /**
  * Provides versions of some JDK methods throwing checked exceptions,
  * that throw a wrapping RethrowException instead.
- * 
- * You might want to use this class only for your tools, tests or samples,
- * not in production code.
  */
 public class Unchecked {
 

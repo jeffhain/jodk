@@ -17,9 +17,15 @@ package net.jodk;
 
 import net.jodk.io.ByteArrayUtilsTest;
 import net.jodk.io.ByteBufferUtilsTest;
+import net.jodk.io.ByteCopyUtilsTest;
 import net.jodk.io.ByteOrderUtilsTest;
 import net.jodk.io.ByteTabUtilsTest;
 import net.jodk.io.DataBufferTest;
+import net.jodk.io.mock.ByteBufferMockBufferTest;
+import net.jodk.io.mock.MockFileChannelTest;
+import net.jodk.io.mock.MockFileLockTest;
+import net.jodk.io.mock.PositionMockContentTest;
+import net.jodk.io.mock.VirtualMockBufferTest;
 import net.jodk.lang.FastMathTest;
 import net.jodk.lang.LangUtilsTest;
 import net.jodk.lang.NumbersUtilsTest;
@@ -62,9 +68,18 @@ public class AllTests {
         
         suite.addTestSuite(ByteArrayUtilsTest.class);
         suite.addTestSuite(ByteBufferUtilsTest.class);
+        suite.addTestSuite(ByteCopyUtilsTest.class);
         suite.addTestSuite(ByteOrderUtilsTest.class);
         suite.addTestSuite(ByteTabUtilsTest.class);
         suite.addTestSuite(DataBufferTest.class);
+        
+        // io.mock
+        
+        suite.addTestSuite(ByteBufferMockBufferTest.class);
+        suite.addTestSuite(MockFileChannelTest.class);
+        suite.addTestSuite(MockFileLockTest.class);
+        suite.addTestSuite(PositionMockContentTest.class);
+        suite.addTestSuite(VirtualMockBufferTest.class);
         
         // lang
         

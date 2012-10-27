@@ -98,14 +98,12 @@ public class MulticastRingBuffer extends AbstractRingBuffer {
     private static final boolean CHECK_STATE_IN_BATCH = true;
 
     /**
-     * If true, throughput might be better.
-     * 
-     * If false, publishers and other workers can only see each worker advance
-     * when it finds no more sequence to read, or has to wait for a ahead worker
-     * to make progress, which typically increases latency, and might also reduce
-     * parallelism (and throughput) in case of dependent workers, if each of (n-1)
-     * workers waits for another to read the whole published sequences before
-     * starting to read them.
+     * If true, throughput might be better, but publishers and other workers can
+     * only see each worker advance when it finds no more sequence to read, or
+     * has to wait for an ahead worker to make progress, which typically
+     * increases latency, and might also reduce parallelism (and throughput) in
+     * case of dependent workers, if each of (n-1) workers waits for another to
+     * read the whole published sequences before starting to read them.
      * 
      * Set to false, i.e. as done in original ring buffer design,
      * to avoid the downsides described above.
@@ -228,7 +226,7 @@ public class MulticastRingBuffer extends AbstractRingBuffer {
         /**
          * Supposes that workers MPS increase monotonically,
          * i.e. that no worker goes backward, which is ensured by
-         * setStartSequence(...) method.
+         * runWorkerFrom(...) method.
          * 
          * @return True is workers to check are all
          */
@@ -1814,7 +1812,7 @@ public class MulticastRingBuffer extends AbstractRingBuffer {
             if (workerMPS < minWorkerMPS) {
                 minWorkerMPS = workerMPS;
                 // Considering no worker goes backward.
-                // This is ensured by setStartSequence(...) method.
+                // This is ensured by runWorkerFrom(...) method.
                 if (workerMPS == recentMinWorkerMPS) {
                     // This worker is still at a computed min worker MPS,
                     // so we can't find another worker with a lower MPS.
