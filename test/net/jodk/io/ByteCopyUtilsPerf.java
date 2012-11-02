@@ -16,9 +16,7 @@
 package net.jodk.io;
 
 import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 
@@ -40,35 +38,22 @@ public class ByteCopyUtilsPerf {
     /**
      * Copy size, which is also used for both src and dst sizes.
      */
-    private static final int COPY_SIZE = 100 * 1000 * 1000;
+    private static final int COPY_SIZE = 200 * 1000 * 1000;
 
-    private static final int NBR_OF_RUNS = 4;
+    /**
+     * To allow for srcPos != dstPos.
+     */
+    private static final int CONTAINER_CAP = COPY_SIZE+1;
     
-    //--------------------------------------------------------------------------
-    // PRIVATE CLASSES
-    //--------------------------------------------------------------------------
+    private static final int SMALL_SUB_COPY_SIZE = 1024;
     
-    private static class MyFCHolder {
-        final RandomAccessFile rac;
-        public MyFCHolder(File file) {
-            try {
-                this.rac = new RandomAccessFile(file, "rw");
-            } catch (FileNotFoundException e) {
-                throw new RuntimeException(e);
-            }
-        }
-        public FileChannel getFC() {
-            return this.rac.getChannel();
-        }
-        public void close() {
-            try {
-                this.rac.close();
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
-        }
-    }
+    /**
+     * To tune default one.
+     */
+    private static final int MBB_THRESHOLD = ByteCopyUtils.DEFAULT_MBB_THRESHOLD;
 
+    private static final int NBR_OF_RUNS = 8;
+    
     //--------------------------------------------------------------------------
     // MEMBERS
     //--------------------------------------------------------------------------
@@ -122,84 +107,58 @@ public class ByteCopyUtilsPerf {
     }
 
     /**
-     * Uses specified positions (0,0).
-     * 
      * @param utils Null for use of static methods.
+     * @param byteShift < 0 for srcPos > dstPos (forward copy),
+     *                  > 0 for srcPos < dstPos (backward copy),
+     *                  0 for srcPos == dstPos.
      */
     private static void benchCopy(
             ByteCopyUtils utils,
             Object src,
             Object dst,
+            int maxSubCopySize,
+            int byteShift,
             String comment) {
-        benchCopy(utils, src, dst, false, false, comment);
-    }
-
-    /**
-     * @param utils Null for use of static methods.
-     */
-    private static void benchCopy(
-            ByteCopyUtils utils,
-            Object src,
-            Object dst,
-            boolean useSrcPos,
-            boolean useDstPos,
-            String comment) {
+        if ((byteShift < -1) || (byteShift > 1)) {
+            throw new AssertionError();
+        }
+        final int n = COPY_SIZE;
+        if ((maxSubCopySize < 1) || (maxSubCopySize > n)) {
+            throw new AssertionError();
+        }
         for (int k=0;k<NBR_OF_RUNS;k++) {
-            if (useSrcPos) {
-                resetPos(src);
-            }
-            if (useDstPos) {
-                resetPos(dst);
-            }
-
             long a = System.nanoTime();
-            try {
-                if (useSrcPos) {
-                    if (useDstPos) {
-                        if (utils == null) {
-                            ByteCopyUtils.readAllAndWriteAll(src, dst, COPY_SIZE);
-                        } else {
-                            utils.readAllAndWriteAll_(src, dst, COPY_SIZE);
-                        }
+            int nDone = 0;
+            while (nDone < n) {
+                final int nRemaining = (n-nDone);
+                final int subCopySize = Math.min(nRemaining, maxSubCopySize);
+                try {
+                    final int srcPos = nDone + ((byteShift >= 0) ? 0 : 1);
+                    final int dstPos = nDone + ((byteShift <= 0) ? 0 : 1);
+                    // All/All-ness has currently no impact on actually
+                    // used copy treatments, so no need to test other methods.
+                    if (utils == null) {
+                        ByteCopyUtils.readAllAtAndWriteAllAt(src, srcPos, dst, dstPos, subCopySize);
                     } else {
-                        if (utils == null) {
-                            ByteCopyUtils.readAllAndWriteAllAt(src, dst, 0, COPY_SIZE);
-                        } else {
-                            utils.readAllAndWriteAllAt_(src, dst, 0, COPY_SIZE);
-                        }
+                        utils.readAllAtAndWriteAllAt_(src, srcPos, dst, dstPos, subCopySize);
                     }
-                } else {
-                    if (useDstPos) {
-                        if (utils == null) {
-                            ByteCopyUtils.readAllAtAndWriteAll(src, 0, dst, COPY_SIZE);
-                        } else {
-                            utils.readAllAtAndWriteAll_(src, 0, dst, COPY_SIZE);
-                        }
-                    } else {
-                        if (utils == null) {
-                            ByteCopyUtils.readAllAtAndWriteAllAt(src, 0, dst, 0, COPY_SIZE);
-                        } else {
-                            utils.readAllAtAndWriteAllAt_(src, 0, dst, 0, COPY_SIZE);
-                        }
-                    }
+                    nDone += subCopySize;
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
                 }
-            } catch (IOException e) {
-                throw new RuntimeException(e);
             }
             long b = System.nanoTime();
             final String dressedComment = ((comment == null) ? "" : " ("+comment+")");
-            System.out.println("copy from "+info(src)+" to "+info(dst)+dressedComment+" took "+TestUtils.nsToSRounded(b-a)+" s");
+            final String scsInfo =
+                ((maxSubCopySize == n) ? "" :
+                    ((maxSubCopySize >= MBB_THRESHOLD) ? " (>= MBB threshold)" :
+                        (maxSubCopySize == MBB_THRESHOLD-1) ? " (< MBB threshold)" :
+                            " (small sub-copies)"));
+            final String backwardInfo = ((byteShift > 0) ? " (backward)" : "");
+            System.out.println("copy from "+info(src)+" to "+info(dst)+dressedComment+scsInfo+backwardInfo+" took "+TestUtils.nsToSRounded(b-a)+" s");
         }
     }
     
-    private static void resetPos(Object container) {
-        if (container instanceof ByteBuffer) {
-            ((ByteBuffer)container).position(0);
-        } else {
-            UncheckedIO.position((FileChannel)container, 0);
-        }
-    }
-
     private static String info(Object container) {
         if (container instanceof ByteBuffer) {
             return bbInfo((ByteBuffer)container);
@@ -224,18 +183,6 @@ public class ByteCopyUtilsPerf {
         return "FC";
     }
     
-    private static String addComment(String previous, String added) {
-        if ((added == null) || (added.length() == 0)) {
-            return ""+previous;
-        } else {
-            if ((previous == null) || (previous.length() == 0)) {
-                return ""+added;
-            } else {
-                return previous+", "+added;
-            }
-        }
-    }
-    
     private static void settle() {
         System.gc();
     }
@@ -246,108 +193,146 @@ public class ByteCopyUtilsPerf {
     
     private static ByteBuffer newBB(int bbType) {
         if (bbType == BB_TYPE_HEAP_ARRAY) {
-            return ByteBuffer.allocate(COPY_SIZE);
+            return ByteBuffer.allocate(CONTAINER_CAP);
         } else if (bbType == BB_TYPE_DIRECT) {
-            return ByteBuffer.allocateDirect(COPY_SIZE);
+            return ByteBuffer.allocateDirect(CONTAINER_CAP);
         } else if (bbType == BB_TYPE_HEAP_NOARRAY) {
-            return ByteBuffer.allocate(COPY_SIZE).asReadOnlyBuffer();
+            return ByteBuffer.allocate(CONTAINER_CAP).asReadOnlyBuffer();
         } else {
             throw new AssertionError(bbType);
         }
     }
 
-    private static MyFCHolder newFCHolder(int initialSize) {
+    private static FCHolder newFCHolder(int initialSize) {
         File file = TestUtils.newTempFile();
         if (DEBUG) {
             System.out.println("using tmp file "+file.getAbsolutePath());
         }
-        MyFCHolder fch = new MyFCHolder(file);
-        if (initialSize > 0) {
-            ByteBuffer src = ByteBuffer.allocate(initialSize);
-            try {
-                ByteCopyUtils.readAllAndWriteAllAt(src, fch.getFC(), 0, initialSize);
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
-        }
+        FCHolder fch = new FCHolder(file);
+        fch.setSize(initialSize);
         return fch;
     }
-    
+
     /*
      * 
      */
     
     private void bench_BB_BB() {
         System.out.println("");
+        System.out.println("BB to BB");
+        // no MBBs for these copies, so only one sub-copy size near MBB threshold
+        for (int maxSubCopySize : new int[]{SMALL_SUB_COPY_SIZE,MBB_THRESHOLD,COPY_SIZE}) {
+            System.out.println("");
+            System.out.println("BB to BB - sub-copy size = "+maxSubCopySize);
+            // no forward/backward copies (overlapping-proof without)
+            for (int byteShift : new int[]{0}) {
+                bench_BB_BB(maxSubCopySize, byteShift);
+            }
+        }
+    }
+    
+    private void bench_BB_FC() {
+        System.out.println("");
+        System.out.println("BB to FC");
+        // no MBBs for these copies, so only one sub-copy size near MBB threshold
+        for (int maxSubCopySize : new int[]{SMALL_SUB_COPY_SIZE,MBB_THRESHOLD,COPY_SIZE}) {
+            System.out.println("");
+            System.out.println("BB to FC - sub-copy size = "+maxSubCopySize);
+            // not overlapping-proof so no forward/backward copies
+            for (int byteShift : new int[]{0}) {
+                bench_BB_FC(maxSubCopySize, byteShift);
+            }
+        }
+    }
+    
+    private void bench_FC_BB() {
+        System.out.println("");
+        System.out.println("FC to BB");
+        for (int maxSubCopySize : new int[]{SMALL_SUB_COPY_SIZE,MBB_THRESHOLD-1,MBB_THRESHOLD,COPY_SIZE}) {
+            System.out.println("");
+            System.out.println("FC to BB - sub-copy size = "+maxSubCopySize);
+            // not overlapping-proof so no forward/backward copies
+            for (int byteShift : new int[]{0}) {
+                bench_FC_BB(maxSubCopySize, byteShift);
+            }
+        }
+    }
+    
+    private void bench_FC_FC() {
+        System.out.println("");
+        System.out.println("FC to FC");
+        for (int maxSubCopySize : new int[]{SMALL_SUB_COPY_SIZE,MBB_THRESHOLD-1,MBB_THRESHOLD,COPY_SIZE}) {
+            System.out.println("");
+            System.out.println("FC to FC - sub-copy size = "+maxSubCopySize);
+            for (int byteShift : new int[]{-1,1}) {
+                bench_FC_FC(maxSubCopySize, byteShift);
+            }
+        }
+    }
+
+    /*
+     * 
+     */
+    
+    private void bench_BB_BB(int maxSubCopySize, int byteShift) {
+        System.out.println("");
         for (int srcType=BB_TYPE_MIN;srcType<=BB_TYPE_MAX;srcType++) {
             for (int dstType=BB_TYPE_MIN;dstType<=BB_TYPE_MAX_WRITABLE;dstType++) {
                 settle();
-                benchCopy(null, newBB(srcType), newBB(dstType), null);
+                benchCopy(null, newBB(srcType), newBB(dstType), maxSubCopySize, byteShift, null);
             }
         }
         settle();
     }
 
-    private void bench_BB_FC() {
+    private void bench_BB_FC(int maxSubCopySize, int byteShift) {
         System.out.println("");
         for (int srcType=BB_TYPE_MIN;srcType<=BB_TYPE_MAX;srcType++) {
             settle();
-            MyFCHolder dstFCH = newFCHolder(0);
+            FCHolder dstFCH = newFCHolder(0);
             try {
-                benchCopy(null, newBB(srcType), dstFCH.getFC(), null);
+                benchCopy(null, newBB(srcType), dstFCH.getFC(), maxSubCopySize, byteShift, null);
             } finally {
-                dstFCH.close();
+                dstFCH.release();
             }
         }
         settle();
     }
 
-    private void bench_FC_BB() {
+    private void bench_FC_BB(int maxSubCopySize, int byteShift) {
         System.out.println("");
         for (boolean mbbIfPossible : new boolean[]{true,false}) {
             final ByteCopyUtils utils = (mbbIfPossible ? null : new ByteCopyUtils(null, false));
             final String comment = (mbbIfPossible ? "MBB if possible" : "no MBB");
             for (int dstType=BB_TYPE_MIN;dstType<=BB_TYPE_MAX_WRITABLE;dstType++) {
                 settle();
-                MyFCHolder srcFCH = newFCHolder(COPY_SIZE);
+                FCHolder srcFCH = newFCHolder(CONTAINER_CAP);
                 try {
-                    benchCopy(utils, srcFCH.getFC(), newBB(dstType), comment);
+                    benchCopy(utils, srcFCH.getFC(), newBB(dstType), maxSubCopySize, byteShift, comment);
                 } finally {
-                    srcFCH.close();
+                    srcFCH.release();
                 }
             }
         }
         settle();
     }
 
-    private void bench_FC_FC() {
+    private void bench_FC_FC(int maxSubCopySize, int byteShift) {
         System.out.println("");
         for (boolean mbbIfPossible : new boolean[]{true,false}) {
             final ByteCopyUtils utils = (mbbIfPossible ? null : new ByteCopyUtils(null, false));
-            final String comment1 = (mbbIfPossible ? "MBB if possible" : "no MBB");
-            for (boolean posInSrc : new boolean[]{false,true}) {
-                final String comment2 = addComment(comment1, (posInSrc ? "pos in src" : ""));
-                for (boolean posInDst : new boolean[]{false,true}) {
-                    if (posInSrc && posInDst) {
-                        // Same as if just posInDst, and not wanting
-                        // to burn the drive for nothing.
-                        continue;
-                    }
-                    final String comment3 = addComment(comment2, (posInDst ? "pos in dst" : ""));
-                    
-                    settle();
-                    MyFCHolder srcFCH = newFCHolder(COPY_SIZE);
-                    try {
-                        MyFCHolder dstFCH = newFCHolder(0);
-                        try {
-                            benchCopy(utils, srcFCH.getFC(), dstFCH.getFC(), comment3);
-                        } finally {
-                            dstFCH.close();
-                        }
-                    } finally {
-                        srcFCH.close();
-                    }
+            final String comment = (mbbIfPossible ? "MBB if possible" : "no MBB");
+            settle();
+            FCHolder srcFCH = newFCHolder(CONTAINER_CAP);
+            try {
+                FCHolder dstFCH = newFCHolder(0);
+                try {
+                    benchCopy(utils, srcFCH.getFC(), dstFCH.getFC(), maxSubCopySize, byteShift, comment);
+                } finally {
+                    dstFCH.release();
                 }
+            } finally {
+                srcFCH.release();
             }
         }
         settle();

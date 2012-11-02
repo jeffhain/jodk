@@ -34,6 +34,35 @@ import net.jodk.lang.NumbersUtils;
  * must be limited by src and/or dst remaining amounts of bytes from copy
  * positions up to limit/size.
  * 
+ * If src (or dst) copy position is specified (not using instance's one),
+ * it allows for usage of the same instance of src (or dst) for non-overlapping
+ * copies by multiple threads, but then no single thread must modify src (or dst)
+ * position or limit/size concurrently, since these values will typically be read
+ * by the (other) copying threads (for example, on ByteBuffer.duplicate()).
+ * 
+ * Unlike ByteBuffer.put(ByteBuffer), these treatments allow src and dst
+ * to be a same instance, even if src and dst copy positions are identical,
+ * in which case no actual copy is made. This allows to pass over the particular
+ * (and most likely rare) case of obviously useless copies without an annoying
+ * and risky (surprising) exception being thrown.
+ * 
+ * Copies of overlapping ranges, i.e. when src and dst copy ranges overlap in
+ * memory, is handled (to avoid the risk of erasing byte to copy with copied
+ * bytes):
+ * - for BB to BB copies, by counting on ByteBuffer's treatments to handle it,
+ *   which they do by delegating to System.arraycopy(...) for heap ByteBuffers,
+ *   and to unsafe.copyMemory(long,long,long) (or hopefully equivalent treatments
+ *   in non-Sun/Oracle JDKs) for direct ByteBuffers (TODO Unsafe not specified
+ *   but has been observed to behave that way),
+ * - for FC to FC copies, by copying forward or backward depending on src and dst
+ *   copy positions.
+ * Copies of overlapping ranges are not handled for copies between (mapped)
+ * ByteBuffers and FileChannels, for there is no way to find out if and how they
+ * overlap.
+ * Note: The need for a backward copy corresponds to srcPos < dstPos, i.e. to
+ * bytes "moving forward"; to avoid confusion we only use backward/forward
+ * refering to the way the looping is done, not refering to bytes shift.
+ * 
  * To reduce the overall amount of methods, which is already large, src and dst
  * arguments type is Object. ClassCastException is thrown at some point if your
  * object is neither a ByteBuffer nor a FileChannel.
@@ -47,20 +76,17 @@ import net.jodk.lang.NumbersUtils;
  * If the specified number of bytes to copy is > 0, and position copy
  * for src is >= its size, and no exception is to be thrown, these treatments
  * return 0, and not -1 as some read methods do, to keep things simple, i.e.
- * for homogeneity with other nothing-read cases.
+ * for homogeneity with other nothing-copied cases.
  * 
  * A ByteBuffer or FileChannel for which copy position is specified (not using
  * its own position), can be used concurrently for multiple non-overlaping
  * copies, as long as none of these copies causes it to grow, i.e. modifies its
- * limit or size (in particular when using mapped buffers which behavior is
+ * limit or size (in particular if using mapped buffers which behavior is
  * inherently undefined in such cases).
  * 
- * Treatments might use thread-local temporary ByteBuffers, each being about 8ko,
- * which should allow for usage by many threads without too much memory overhead.
- * 
- * These treatment's behavior is undefined if src and dst share data such as
- * position or limit/size, or share content memory and src and dst copy ranges
- * overlap.
+ * Treatments might use thread-local temporary ByteBuffers, which should be
+ * small enough to allow for usage by many threads without too much memory
+ * overhead.
  * 
  * FileChannels don't provide access to their readability state,
  * and we want semantics to be similar for ByteBuffers and FileChannels,
@@ -68,42 +94,49 @@ import net.jodk.lang.NumbersUtils;
  * As a result, no ReadOnlyBufferException or NonWritableChannelException
  * is thrown unless an attempt to write data is actually made.
  * 
+ * For copies involving ByteBuffers, we take care to properly restore
+ * (in case of temporary usage allowed by non-concurrency) or update
+ * (in case copy position is read from the ByteBuffer) their position
+ * and possibly their limit after the copy, even in case of exception,
+ * which requires some try/finally blocks.
+ * Position update in case of exception is also taken care of for
+ * FileChannels.
+ * 
  * These methods are rather permissive about their arguments.
  * For example, if specified src position is past src size,
  * System.arraycopy(byte[],int,byte[],int,int)
- * and
- * ByteBufferUtils.bufferCopy(ByteBuffer,int,ByteBuffer,int,int)
- * throw, but
+ * throws, but
  * IOUtils.readAtAndWriteAllAt(Object,long,Object,long,long)
  * just returns 0.
  */
 public class ByteCopyUtils {
 
     /*
-     * TODO
+     * TODO:
+     * 
      * - These treatments could be considerably simplified, and made faster and
      *   garbage-free, if the JDK would provide more appropriate low level
      *   primitives, in particular native copy treatments that don't make use of
      *   position.
+     *   
      * - The API is very open about when an IOException can be thrown,
      *   not to constrain the implementation, but a better (lower-level)
      *   implementation could precise it some.
-     * - When shared memory between src and dst can be figured out,
-     *   could handle it by copying first-to-last or last-to-first.
-     *   Not doing it for now, because it would complicate both
-     *   semantics (when can overlapping be figured out?) and
-     *   implementation.
+     *   
      * - Could make instance methods public, along with some constructor,
      *   and allow for use of instance-local temporary ByteBuffers,
      *   which could help in case of high threads turnover that
      *   would make thread-local temporary ByteBuffers hurt.
+     *   
+     * - For BB to FC copies, can't use a mapped buffer as destination
+     *   buffer, for it would require to either know whether the channel
+     *   is readable (which is required for mapping), or have a WRITE_ONLY
+     *   mapping mode, useful for non-readable channel, none of which
+     *   is currently portably possible.
+     *   Note: this would require to call MappedByteBuffer.force()
+     *   for copy of each chunk.
      */
     
-    /*
-     * Taking care not to use FileChannel.read/write with large heap buffers,
-     * for Sun's implementation uses an as big temporary direct buffer.
-     */
-
     /*
      * Not allowing user to specify whether src or dst instances are supposed to
      * be used concurrently when a position is specified, in which case we
@@ -111,10 +144,23 @@ public class ByteCopyUtils {
      * associated garbage (.duplicate()) and additional copies, than having
      * to simplify the API if/when efficient concurrency-proof implementations
      * become available.
-     * Also, if position is specified, and concurrency-proof-ness turned off,
-     * to avoid a call to .duplicate(), treatments might temporarily change
-     * limit and position of the specified ByteBuffer, which might clear
+     * 
+     * Also, if position is specified with concurrency-proof-ness turned off,
+     * to avoid a call to .duplicate(), treatments could temporarily change
+     * limit and position of the specified ByteBuffer, which could clear
      * the mark if any.
+     * 
+     * Always considering possible concurrent usage of ByteBuffers when position
+     * is specified also causes to never use specified instance's position or
+     * limit as temporary position or limit, and thus not having to restore them
+     * after use, since then we work on a .duplicate().
+     */
+    
+    /*
+     * Taking care not to use FileChannel.read/write with large heap buffers,
+     * for Sun's implementation uses an as big temporary direct buffer,
+     * and even if it was small, it would generate useless garbage
+     * since we already have our own temporary ByteBuffers.
      */
     
     /*
@@ -165,17 +211,17 @@ public class ByteCopyUtils {
      * usage of a same src or dst instance)
      * 
      * 
-     * - System.arraycopy(srcBB.array(),srcOff+srcPos,dstBB.array(),dstOff+dstPos,n)
+     * - System.arraycopy(srcBB.array(),srcOff+srcPos,dstBB.array(),dstOff+dstPos,count)
      *   (concurrent)
      * 
      * 
      * - ByteBuffer.put(srcBB)
      *   (not concurrent, native if dst is direct)
      * 
-     * - ByteBuffer.put(srcBB.array(),srcOff+srcPos,n)
+     * - ByteBuffer.put(srcBB.array(),srcOff+srcPos,count)
      *   (concurrent for src, native if dst is direct)
      * 
-     * - ByteBuffer.get(dstBB.array(),dstOff+dstPos,n)
+     * - ByteBuffer.get(dstBB.array(),dstOff+dstPos,count)
      *   (concurrent for dst, native if src is direct)
      * 
      * 
@@ -217,20 +263,20 @@ public class ByteCopyUtils {
      *   (can grow dst)
      * 
      * 
-     * - FileChannel.transferTo(srcPos,n,dstWBC)
+     * - FileChannel.transferTo(srcPos,count,dstWBC)
      *   (concurrent for src, might use
      *   kernel's copy,
-     *   else map/write(mbb) (chunks <= 8Mo),
-     *   else tmp/read(bb,int)/write(bb) (chunks <= 8Ko))
+     *   else map/write(mbb) (chunks <= 8Mio),
+     *   else tmp/read(bb,int)/write(bb) (chunks <= 8Kio))
      *   (takes dst position lock (through use of write(BB)))
      *   (can grow dst)
      * 
-     * - FileChannel.transferFrom(srcRBC,dstPos,n)
+     * - FileChannel.transferFrom(srcRBC,dstPos,count)
      *   (concurrent for dst, uses
-     *   map/write(bb,int) (chunks <= 8Mo),
-     *   else tmp/read(bb)/write(bb,int) (chunks <= 8Ko))
+     *   map/write(mbb,int) (chunks <= 8Mio),
+     *   else tmp/read(bb)/write(bb,int) (chunks <= 8Kio))
      *   (takes src position lock)
-     *   (can grow dst, (TODO bug?) but doesn't if dstPos > dst.size())
+     *   (can grow dst, but doesn't if dstPos > dst.size() (TODO bug?))
      * 
      * 
      * - FileChannel.map(...) : returns a MappedByteBuffer (direct).
@@ -243,20 +289,61 @@ public class ByteCopyUtils {
     //--------------------------------------------------------------------------
 
     private static final boolean ASSERTIONS = false;
+
+    /**
+     * TODO For some reason, intensive benches sometimes hang up to nearly a
+     * second in treatments involving MBBs.
+     * Since this problem doesn't arise with temporary direct ByteBuffer
+     * approaches, and since MBBs don't provide much better performances,
+     * we just completely disable MBBs usage.
+     */
+    private static final boolean ALLOW_MBB = false;
     
     /**
-     * Similar to java.nio.FileChannelImpl.TRANSFER_SIZE = 8 * 1024.
-     * Not too large (i.e. not like java.nio.Bits.UNSAFE_COPY_THRESHOLD = 1024 * 1024),
-     * to avoid too large memory overheap in case of usage of thread-safe
-     * instance by many threads.
+     * TODO It appears that, depending on OS/architecture, and possibly only for
+     * copy sizes below a certain threshold (256 bytes or so), FileChannel.write
+     * methods don't use overlapping-proof treatments, but either forward or
+     * backward loops on bytes.
+     * This can causes FC to FC copies between FileChannels corresponding
+     * to a same file not to behave properly when using MBB (i.e. no temporary
+     * ByteBuffer).
+     * As a result, for FC to FC copies, MBBs are disabled.
      */
-    private static final int DEFAULT_MAX_CHUNK_SIZE = 8 * 1024;
+    private static final boolean ALLOW_MBB_FOR_FORWARD_FC_FC_COPIES = false;
+    private static final boolean ALLOW_MBB_FOR_BACKWARD_FC_FC_COPIES = false;
+    
+    /**
+     * TODO Taking care not to use FileChannel.write with a too large (500Kio or so)
+     * direct buffer, for it can be slow for some reason (observed on WinXP/7,
+     * not observed on Linux): cutting the write in chunks if it is too large.
+     * (For the same reason, not using FileChannel.transferTo/transferFrom.
+     * FileChannel.read doesn't have that problem.)
+     * 
+     * Experimentally, 256Kio was found to be fast, and 512Kio quite slow,
+     * so we use 32Kio, which is far enough from 256Kio to make "sure"
+     * we are not slow, and large enough to make sure we are still fast.
+     */
+    private static final int DEFAULT_MAX_WRITE_CHUNK_SIZE = 32 * 1024;
+
+    /**
+     * Similar to java.nio.FileChannelImpl.TRANSFER_SIZE = 8 * 1024.
+     * 
+     * Not too large to avoid too large memory overheap in case of
+     * usage of thread-safe instance by many threads.
+     * 
+     * Using same size than max write chunk size (being larger
+     * could help for reads (not by much since it's large already),
+     * but it would use more memory, so should be avoided).
+     */
+    private static final int DEFAULT_MAX_TMP_CHUNK_SIZE = 32 * 1024;
+    
+    static final int DEFAULT_MBB_THRESHOLD = 1024 * 1024;
 
     /**
      * Similar to java.nio.FileChannelImpl.MAPPED_TRANSFER_SIZE = 8 * 1024 * 1024.
      */
     private static final int DEFAULT_MAX_MBB_CHUNK_SIZE = 8 * 1024 * 1024;
-
+    
     //--------------------------------------------------------------------------
     // MEMBERS
     //--------------------------------------------------------------------------
@@ -283,7 +370,28 @@ public class ByteCopyUtils {
      * 
      */
     
-    private final int maxChunkSize;
+    /**
+     * Max copy size when using FileChannel.write(ByteBuffer,long)
+     * with a (direct) ByteBuffer (mapped or not).
+     * Needs to be small enough not to cause the slowness to show up,
+     * and large enough to reduce overhead.
+     */
+    private final int maxWriteChunkSize;
+    
+    /**
+     * Max size for temporary ByteBuffers.
+     */
+    private final int maxTmpChunkSize;
+    
+    /**
+     * Copy size from which we try to use MBB,
+     * i.e. from which using MBB should be faster.
+     */
+    private final int mbbThreshold;
+    
+    /**
+     * Max size for mapped ByteBuffer.
+     */
     private final int maxMBBChunkSize;
 
     /**
@@ -316,7 +424,9 @@ public class ByteCopyUtils {
     public String toString() {
         return super.toString()
         +"[threadSafe="+(this.tlTmpDirectBB != null)
-        +",maxChunkSize="+this.maxChunkSize
+        +",maxWriteChunkSize="+this.maxWriteChunkSize
+        +",maxTmpChunkSize="+this.maxTmpChunkSize
+        +",mbbThreshold="+this.mbbThreshold
         +",maxMBBChunkSize="+this.maxMBBChunkSize
         +",mbbHelper="+this.mbbHelper+"]";
     }
@@ -576,44 +686,60 @@ public class ByteCopyUtils {
     /**
      * Uses default chunks sizes.
      * 
-     * @param mbbProvider Can be null.
+     * @param mbbHelper Can be null.
      * @param threadSafe If true, using thread-local temporary ByteBuffers,
      *        else an instance-local one.
      */
     ByteCopyUtils(
-            final InterfaceMBBHelper mbbProvider,
+            final InterfaceMBBHelper mbbHelper,
             final boolean threadSafe) {
         this(
-                mbbProvider,
+                mbbHelper,
                 threadSafe,
-                DEFAULT_MAX_CHUNK_SIZE,
+                DEFAULT_MAX_WRITE_CHUNK_SIZE,
+                DEFAULT_MAX_TMP_CHUNK_SIZE,
+                DEFAULT_MBB_THRESHOLD,
                 DEFAULT_MAX_MBB_CHUNK_SIZE);
     }
 
     /**
-     * @param mbbProvider Can be null.
+     * @param mbbHelper Can be null.
      * @param threadSafe If true, using thread-local temporary ByteBuffers,
      *        else an instance-local one.
+     * @param maxWriteChunkSize Must be > 0.
+     * @param maxTmpChunkSize Must be > 0.
+     * @param mbbThreshold Must be >= 0.
+     * @param maxMBBChunkSize Must be > 0.
      */
     ByteCopyUtils(
-            final InterfaceMBBHelper mbbProvider,
+            final InterfaceMBBHelper mbbHelper,
             final boolean threadSafe,
-            final int maxChunkSize,
+            final int maxWriteChunkSize,
+            final int maxTmpChunkSize,
+            final int mbbThreshold,
             final int maxMBBChunkSize) {
-        if (maxChunkSize <= 0) {
+        if (maxWriteChunkSize <= 0) {
+            throw new IllegalArgumentException();
+        }
+        if (maxTmpChunkSize <= 0) {
+            throw new IllegalArgumentException();
+        }
+        if (mbbThreshold < 0) {
             throw new IllegalArgumentException();
         }
         if (maxMBBChunkSize <= 0) {
             throw new IllegalArgumentException();
         }
-        this.maxChunkSize = maxChunkSize;
+        this.maxWriteChunkSize = maxWriteChunkSize;
+        this.maxTmpChunkSize = maxTmpChunkSize;
+        this.mbbThreshold = mbbThreshold;
         this.maxMBBChunkSize = maxMBBChunkSize;
-        this.mbbHelper = mbbProvider;
+        this.mbbHelper = mbbHelper;
         if (threadSafe) {
             this.tlTmpDirectBB = new ThreadLocal<ByteBuffer>() {
                 @Override
                 public ByteBuffer initialValue() {
-                    return ByteBuffer.allocateDirect(maxChunkSize);
+                    return ByteBuffer.allocateDirect(maxTmpChunkSize);
                 }
             };
         } else {
@@ -751,9 +877,7 @@ public class ByteCopyUtils {
     private ByteCopyUtils() {
         this(
                 DefaultMBBHelper.INSTANCE,
-                false, // threadSafe
-                DEFAULT_MAX_CHUNK_SIZE,
-                DEFAULT_MAX_MBB_CHUNK_SIZE);
+                false); // threadSafe
     }
 
     /*
@@ -774,13 +898,13 @@ public class ByteCopyUtils {
             final long count,
             final boolean readAllCount,
             final boolean writeAllRead) throws IOException {
-        
-        final boolean posInSrc = (srcPosElseNeg < 0);
-        final boolean posInDst = (dstPosElseNeg < 0);
         if(ASSERTIONS)assert(!(readAllCount && (!writeAllRead)));
         if(ASSERTIONS)assert(src != null);
         if(ASSERTIONS)assert(dst != null);
         if(ASSERTIONS)assert(count >= 0);
+        
+        final boolean posInSrc = (srcPosElseNeg < 0);
+        final boolean posInDst = (dstPosElseNeg < 0);
         
         /*
          * pre treatments
@@ -834,6 +958,10 @@ public class ByteCopyUtils {
                     final ByteBuffer dstBB = asBB(dst);
                     if (dstInitialSize < neededLimit) {
                         // Need to grow.
+                        // If dst is same instance than src,
+                        // this grow needs not to impact considered
+                        // src remaining bytes, which it doesn't
+                        // since this has already been computed.
                         if (neededLimit > dstBB.capacity()) {
                             // Can't grow that much.
                             throw new BufferOverflowException();
@@ -858,58 +986,66 @@ public class ByteCopyUtils {
         }
         
         /*
-         * actual copy
+         * copy
          */
         
         final long nDone;
-        if (src instanceof ByteBuffer) {
-            if (dst instanceof ByteBuffer) {
-                nDone = this.readXXXAndWriteXXX_BB_BB(
-                        asBB(src),
-                        asInt(srcPos),
-                        asBB(dst),
-                        asInt(dstPos),
-                        asInt(n),
-                        readAllCount,
-                        writeAllRead,
-                        posInSrc,
-                        posInDst);
-            } else {
-                nDone = this.readXXXAndWriteXXX_BB_FC(
-                        asBB(src),
-                        asInt(srcPos),
-                        asFC(dst),
-                        dstPos,
-                        asInt(n),
-                        readAllCount,
-                        writeAllRead,
-                        posInSrc,
-                        posInDst);
+        if ((src == dst)
+                && (srcPos == dstPos)) {
+            // Virtual copy.
+            // Note: if (src == dst), then, if both posInSrc and posInDst
+            // are true, we have (srcPos == dstPos), so we end up here.
+            // Can't have to grow (can't copy more than what's left),
+            // so we can assume the copy is done.
+            nDone = n;
+            if (posInSrc || posInDst) {
+                if (src instanceof ByteBuffer) {
+                    ((ByteBuffer)src).position(asInt(srcPos+n));
+                } else {
+                    ((FileChannel)src).position(srcPos+n);
+                }
             }
         } else {
-            if (dst instanceof ByteBuffer) {
-                nDone = this.readXXXAndWriteXXX_FC_BB(
-                        asFC(src),
-                        srcPos,
-                        asBB(dst),
-                        asInt(dstPos),
-                        asInt(n),
-                        readAllCount,
-                        writeAllRead,
-                        posInSrc,
-                        posInDst);
+            if (src instanceof ByteBuffer) {
+                if (dst instanceof ByteBuffer) {
+                    nDone = this.readXXXAndWriteXXX_BB_BB(
+                            asBB(src),
+                            asInt(srcPos),
+                            asBB(dst),
+                            asInt(dstPos),
+                            asInt(n),
+                            posInSrc,
+                            posInDst);
+                } else {
+                    nDone = this.readXXXAndWriteXXX_BB_FC(
+                            asBB(src),
+                            asInt(srcPos),
+                            asFC(dst),
+                            dstPos,
+                            asInt(n),
+                            posInSrc,
+                            posInDst);
+                }
             } else {
-                nDone = this.readXXXAndWriteXXX_FC_FC(
-                        asFC(src),
-                        srcPos,
-                        asFC(dst),
-                        dstPos,
-                        n,
-                        readAllCount,
-                        writeAllRead,
-                        posInSrc,
-                        posInDst,
-                        dstInitialSize);
+                if (dst instanceof ByteBuffer) {
+                    nDone = this.readXXXAndWriteXXX_FC_BB(
+                            asFC(src),
+                            srcPos,
+                            asBB(dst),
+                            asInt(dstPos),
+                            asInt(n),
+                            posInSrc,
+                            posInDst);
+                } else {
+                    nDone = this.readXXXAndWriteXXX_FC_FC(
+                            asFC(src),
+                            srcPos,
+                            asFC(dst),
+                            dstPos,
+                            n,
+                            posInSrc,
+                            posInDst);
+                }
             }
         }
         
@@ -918,17 +1054,33 @@ public class ByteCopyUtils {
          */
         
         if (nDone != n) {
+            // Can happen for example if writing into a FileChannel,
+            // if device gets full.
+            // Note: if device is full when FileChannel.write(...) gets called,
+            // it has been observed to throw an IOException ("no space left on device"),
+            // instead of just stopping early (and returning 0) as it does
+            // when device gets full after the write already copied some bytes.
             if(ASSERTIONS)assert(nDone < n);
-            final boolean couldHaveReadMore = (srcPos + nDone < srcInitialSize);
+            final boolean couldHaveReadMore = (nDone < srcInitialRemFromPos);
             // Note: if both readAllCount and writeAllRead are true,
             // an exception is necessarily thrown, as one could expect.
             if (readAllCount) {
+                // TODO Before copy, we had srcInitialRemFromPos >= count,
+                // else we would have thrown BufferUnderflowException,
+                // and since nDone < n <= count, we necessarily have
+                // nDone < srcInitialRemFromPos, i.e. couldHaveReadMore
+                // is necessarily true, and this code is dead code.
                 if (!couldHaveReadMore) {
                     throw new BufferUnderflowException();
                 }
             }
             if (writeAllRead) {
                 if (couldHaveReadMore) {
+                    // We suppose that there was more to read (even though
+                    // the early stop might be due to src having been
+                    // concurrently truncated), i.e. that the early
+                    // stop is due to dst not allowing more bytes
+                    // to be written.
                     throw new BufferOverflowException();
                 }
             }
@@ -950,99 +1102,156 @@ public class ByteCopyUtils {
             final ByteBuffer dst,
             final int dstPos,
             final int n,
-            final boolean readAllCount,
-            final boolean writeAllRead,
             final boolean posInSrc,
             final boolean posInDst) {
 
-        final boolean concurrentSrc = !posInSrc;
-        final boolean concurrentDst = !posInDst;
+        final boolean sameInstance = (src == dst);
 
-        final int srcInitialPos;
-        if (posInSrc) {
-            srcInitialPos = srcPos;
-        } else {
-            srcInitialPos = src.position();
-        }
-
-        final int dstInitialPos;
-        if (posInDst) {
-            dstInitialPos = dstPos;
-        } else {
-            dstInitialPos = dst.position();
-        }
-
-        if (src.hasArray()) {
-            if (dst.hasArray()) {
-                System.arraycopy(
-                        src.array(),
-                        src.arrayOffset()+srcPos,
-                        dst.array(),
-                        dst.arrayOffset()+dstPos,
-                        n);
+        // If no exception, considering that all was done,
+        // else that nothing was done.
+        int nDone = 0;
+        
+        try {
+            if (src.hasArray()) {
+                if (dst.hasArray()) {
+                    System.arraycopy(
+                            src.array(),
+                            src.arrayOffset()+srcPos,
+                            dst.array(),
+                            dst.arrayOffset()+dstPos,
+                            n);
+                } else {
+                    // dst must be direct, since it is writable
+                    // but has no accessible array; so there
+                    // is no risk of overlapping.
+                    if(ASSERTIONS)assert(dst.isDirect());
+                    final ByteBuffer dstModifiable;
+                    if (posInDst) {
+                        dstModifiable = dst;
+                    } else {
+                        dstModifiable = dst.duplicate();
+                    }
+                    dstModifiable.position(dstPos);
+                    dstModifiable.put(src.array(), src.arrayOffset()+srcPos, n);
+                }
             } else {
-                // dst must be direct, since it is writable
-                // but has no accessible array
-                if(ASSERTIONS)assert(dst.isDirect());
-                final ByteBuffer dstModifiable;
-                if (concurrentDst) {
-                    dstModifiable = dst.duplicate();
+                if (dst.hasArray()) {
+                    // If src is a read-only version of dst content,
+                    // there is a risk of overlapping, but then
+                    // HeapByteBuffer.get should resolve to
+                    // System.arraycopy, so it's handled.
+                    final ByteBuffer srcModifiable;
+                    if (posInSrc) {
+                        srcModifiable = src;
+                    } else {
+                        srcModifiable = src.duplicate();
+                    }
+                    srcModifiable.position(srcPos);
+                    srcModifiable.get(dst.array(), dst.arrayOffset()+dstPos, n);
                 } else {
-                    dstModifiable = dst;
+                    // dst has no accessible array, so it is either
+                    // a read-only heap ByteBuffer, or a direct ByteBuffer.
+                    // To take care of overlapping, we can suppose that dst
+                    // is direct, since if it is a read-only heap ByteBuffer
+                    // it will just throw.
+                    final ByteBuffer srcModifiable;
+                    if (posInSrc) {
+                        srcModifiable = src;
+                    } else {
+                        srcModifiable = src.duplicate();
+                    }
+                    final ByteBuffer dstModifiable;
+                    if (posInDst) {
+                        dstModifiable = dst;
+                    } else {
+                        dstModifiable = dst.duplicate();
+                    }
+                    // If posInSrc and posInDst are both true,
+                    // and src == dst, then we have
+                    // srcModifiable == dstModifiable,
+                    // and put should throw, but that
+                    // won't happend since in that case we
+                    // don't even get to call the current method.
+                    
+                    final int srcInitialLim = srcModifiable.limit();
+                    try {
+                        srcModifiable.limit(srcPos + n);
+                        srcModifiable.position(srcPos);
+                        dstModifiable.position(dstPos);
+                        if (false) {
+                            // TODO On Sun/Oracle JVM at least, put between two
+                            // direct ByteBuffers resolves to Unsafe.copyMemory(long,long,long),
+                            // which seems to behave like System.arraycopy(...), i.e. seems
+                            // to handle the case of overlapping bytes.
+                            // But ByteBuffer.put(ByteBuffer) Javadoc says that it behaves
+                            // (if no exception) like "while (src.hasRemaining()) dst.put(src.get());",
+                            // which is a forward copy and is not suited if memory is shared
+                            // and the copy moves bytes forward.
+                            // ===> We count on all JDKs to handle overlapping for this copy, and on
+                            // Oracle not changing direct ByteBuffer's put to align it with its spec.
+                            
+                            // TODO Code to complete if we don't count on ByteBuffer.put(ByteBuffer)
+                            // to handle overlapping for direct ByteBuffers.
+                            if (src.isDirect()) {
+                                // We suppose dst direct, so there is a risk of overlapping.
+                                if (false) {
+                                    if (src == dst) {
+                                        // Overlapping for sure, but we know how.
+                                    } else {
+                                        final boolean srcMBB = (src instanceof MappedByteBuffer);
+                                        final boolean dstMBB = (src instanceof MappedByteBuffer);
+                                        if (srcMBB != dstMBB) {
+                                            // No risk of overlapping.
+                                        } else {
+                                            // Risk of overlapping, and we don't know how.
+                                            // Would need to use an as big temporary ByteBuffer
+                                            // (ouch!).
+                                        }
+                                    }
+                                }
+                            } else {
+                                // We suppose dst direct, so there is no risk of overlapping.
+                            }
+                        }
+                        dstModifiable.put(srcModifiable);
+                    } finally {
+                        // In case it is src.
+                        setLimIfNeeded(srcModifiable, srcInitialLim);
+                    }
                 }
-                dstModifiable.position(dstPos);
-                dstModifiable.put(src.array(), src.arrayOffset()+srcPos, n);
             }
-        } else {
-            if (dst.hasArray()) {
-                final ByteBuffer srcModifiable;
-                if (concurrentSrc) {
-                    srcModifiable = src.duplicate();
+            
+            nDone = n;
+        } finally {
+            if (sameInstance) {
+                // If both posInSrc and posInDst are true,
+                // any of the first two cases works,
+                // since then srcPos equals dstPos.
+                if (posInSrc) {
+                    setPosIfNeeded(src, srcPos + nDone);
+                } else if (posInDst) {
+                    setPosIfNeeded(src, dstPos + nDone);
                 } else {
-                    srcModifiable = src;
+                    // Did not modify the ByteBuffer (concurrency = .duplicate()).
                 }
-                srcModifiable.position(srcPos);
-                srcModifiable.get(dst.array(), dst.arrayOffset()+dstPos, n);
             } else {
-                // dst must be direct, since it is writable
-                // but has no accessible array
-                if(ASSERTIONS)assert(dst.isDirect());
-                final ByteBuffer srcModifiable;
-                if (concurrentSrc) {
-                    srcModifiable = src.duplicate();
-                } else {
-                    srcModifiable = src;
+                try {
+                    if (posInSrc) {
+                        setPosIfNeeded(src, srcPos + nDone);
+                    } else {
+                        // Did not modify src (concurrency = .duplicate()).
+                    }
+                } finally {
+                    if (posInDst) {
+                        setPosIfNeeded(dst, dstPos + nDone);
+                    } else {
+                        // Did not modify dst (concurrency = .duplicate()).
+                    }
                 }
-                final ByteBuffer dstModifiable;
-                if (concurrentDst) {
-                    dstModifiable = dst.duplicate();
-                } else {
-                    dstModifiable = dst;
-                }
-                
-                final int srcInitialLim = srcModifiable.limit();
-                srcModifiable.limit(srcPos + n);
-                srcModifiable.position(srcPos);
-                
-                setPosIfNeeded(dstModifiable, dstPos);
-                
-                dstModifiable.put(srcModifiable);
-                
-                setLimIfNeeded(src, srcInitialLim);
             }
-        }
-        if (posInSrc) {
-            setPosIfNeeded(src, srcPos+n);
-        } else {
-            setPosIfNeeded(src, srcInitialPos);
-        }
-        if (posInDst) {
-            setPosIfNeeded(dst, dstPos+n);
-        } else {
-            setPosIfNeeded(dst, dstInitialPos);
         }
 
-        return n;
+        return nDone;
     }
 
     private int readXXXAndWriteXXX_BB_FC(
@@ -1051,141 +1260,89 @@ public class ByteCopyUtils {
             final FileChannel dst,
             final long dstPos,
             final int n,
-            final boolean readAllCount,
-            final boolean writeAllRead,
             final boolean posInSrc,
             final boolean posInDst) throws IOException {
         
-        final boolean concurrentSrc = !posInSrc;
-
-        final int srcInitialPos;
-        if (posInSrc) {
-            srcInitialPos = srcPos;
-        } else {
-            srcInitialPos = src.position();
-        }
-
         int nDone = 0;
         
-        /*
-         * TODO For some reason, using FileChannel.write(ByteBuffer,long)
-         * with a huge ByteBuffer can be very slow, as perf tests logs show
-         * (100Mo copy using a SSD):
-         * copy from BB(direct) to FC took 0.973 s
-         * copy from BB(direct) to FC took 0.999 s
-         * copy from BB(direct) to FC took 0.999 s
-         * copy from BB(direct) to FC took 0.992 s
-         * copy from BB(heap,array) to FC took 0.184 s
-         * copy from BB(heap,array) to FC took 0.075 s
-         * copy from BB(heap,array) to FC took 0.073 s
-         * copy from BB(heap,array) to FC took 0.073 s
-         * copy from BB(heap,noarray) to FC took 0.105 s
-         * copy from BB(heap,noarray) to FC took 0.072 s
-         * copy from BB(heap,noarray) to FC took 0.072 s
-         * copy from BB(heap,noarray) to FC took 0.072 s
-         * ===> So we disable it.
-         */
-        final boolean useWriteBigDirect = false;
-        if (useWriteBigDirect && src.isDirect()) {
-            final ByteBuffer srcModifiable;
-            if (concurrentSrc) {
-                srcModifiable = src.duplicate();
-            } else {
-                srcModifiable = src;
-            }
-            
-            final int srcInitialLim = srcModifiable.limit();
-            srcModifiable.limit(srcPos + n);
-            srcModifiable.position(srcPos);
-            
-            // Uses a single native copy.
-            nDone = dst.write(srcModifiable, dstPos);
-            
-            setLimIfNeeded(src, srcInitialLim);
-            
-            if (posInSrc) {
-                if(ASSERTIONS)assert(srcModifiable == src);
-                // has been updated
-            } else {
-                if (srcModifiable == src) {
-                    // undoing position update
-                    src.position(srcInitialPos);
-                }
-            }
-        } else {
-            // TODO Can't use a mapped buffer as destination buffer,
-            // for it would require to either:
-            // - know whether the channel is readable, which is
-            //   required for mapping,
-            // - or have a WRITE_ONLY mapping mode, useful for
-            //   non-readable channel,
-            // none of which is currently portably possible.
-            final boolean useDstMBB = false;
-            if (useDstMBB
-                    && (this.mbbHelper != null)
-                    && (this.mbbHelper.canMapAndUnmap(dst, MapMode.READ_WRITE))
-                    && src.hasArray()) {
-                while (nDone < n) {
-                    final int nRemaining = (n-nDone);
-                    final int tmpN = Math.min(nRemaining, this.maxMBBChunkSize);
-                    final ByteBuffer dstMBB = this.mbbHelper.map(dst, MapMode.READ_WRITE, dstPos + nDone, tmpN);
-                    try {
-                        // src to mbb
-                        // Uses a single native copy.
-                        dstMBB.put(src.array(), src.arrayOffset()+srcPos + nDone, tmpN);
-                        // Might not be an actual MappedByteBuffer,
-                        // for tests or else.
-                        if (dstMBB instanceof MappedByteBuffer) {
-                            ((MappedByteBuffer)dstMBB).force();
-                        }
-                    } finally {
-                        this.mbbHelper.unmap(dst, dstMBB);
-                    }
-                    nDone += tmpN;
-                }
-                if(ASSERTIONS)assert(nDone == n);
-            } else {
+        try {
+            if (src.isDirect()) {
+                // TODO There is a risk of overlapping if src
+                // is a ByteBuffer mapped on FileChannel's file,
+                // but we can't figure it out, so in that case
+                // the copy might be messed-up.
                 final ByteBuffer srcModifiable;
-                if (concurrentSrc) {
-                    srcModifiable = src.duplicate();
-                } else {
+                if (posInSrc) {
                     srcModifiable = src;
+                } else {
+                    srcModifiable = src.duplicate();
+                }
+                final int srcInitialLim = srcModifiable.limit();
+                try {
+                    srcModifiable.limit(srcPos + n);
+                    srcModifiable.position(srcPos);
+
+                    nDone = writeByChunks(srcModifiable, dst, dstPos);
+                } finally {
+                    // In case it is src.
+                    setLimIfNeeded(srcModifiable, srcInitialLim);
+                }
+            } else {
+                // src is a heap ByteBuffer, so there is no risk
+                // of overlapping.
+                final ByteBuffer srcModifiable;
+                if (posInSrc) {
+                    srcModifiable = src;
+                } else {
+                    srcModifiable = src.duplicate();
                 }
 
                 final int srcInitialLim = srcModifiable.limit();
-                
-                final ByteBuffer tmpBB = this.getTmpDirectBB(n);
-                while (nDone < n) {
-                    final int nRemaining = (n-nDone);
-                    
-                    tmpBB.clear();
-                    if (nRemaining < tmpBB.capacity()) {
-                        tmpBB.limit(asInt(nRemaining));
+                try {
+                    final ByteBuffer tmpBB = this.getTmpDirectBB(n);
+                    while (nDone < n) {
+                        final int nRemaining = (n-nDone);
+
+                        tmpBB.clear();
+                        if (nRemaining < tmpBB.capacity()) {
+                            tmpBB.limit(asInt(nRemaining));
+                        }
+                        final int tmpN = tmpBB.remaining();
+
+                        // src to tmp
+                        srcModifiable.limit(srcPos + nDone + tmpN);
+                        srcModifiable.position(srcPos + nDone);
+                        tmpBB.put(srcModifiable);
+
+                        // tmp to dst
+                        tmpBB.flip();
+                        final int tmpNWritten = writeByChunks(tmpBB, dst, dstPos + nDone);
+
+                        nDone += tmpNWritten;
+                        if (tmpNWritten != tmpN) {
+                            // Giving up.
+                            break;
+                        }
                     }
-                    final int tmpN = tmpBB.remaining();
-                    
-                    // src to tmp
-                    srcModifiable.limit(srcPos + nDone + tmpN);
-                    srcModifiable.position(srcPos + nDone);
-                    tmpBB.put(srcModifiable);
-                    
-                    // tmp to dst
-                    tmpBB.flip();
-                    final int tmpNWritten = dst.write(tmpBB, dstPos + nDone);
-                    nDone += tmpNWritten;
-                    if (tmpNWritten != tmpN) {
-                        // Giving up.
-                        break;
-                    }
+                } finally {
+                    // In case it is src.
+                    setLimIfNeeded(srcModifiable, srcInitialLim);
                 }
-                setLimIfNeeded(src, srcInitialLim);
             }
-            if (posInSrc) {
-                src.position(srcPos + nDone);
+        } finally {
+            try {
+                if (posInSrc) {
+                    setPosIfNeeded(src, srcPos + nDone);
+                } else {
+                    // Did not modify src (concurrency = .duplicate()).
+                }
+            } finally {
+                // Not uselessly setting position,
+                // since it causes an IO.
+                if (posInDst && (nDone != 0)) {
+                    dst.position(dstPos + nDone);
+                }
             }
-        }
-        if (posInDst) {
-            dst.position(dstPos + nDone);
         }
 
         return nDone;
@@ -1200,100 +1357,99 @@ public class ByteCopyUtils {
             final ByteBuffer dst,
             final int dstPos,
             final int n,
-            final boolean readAllCount,
-            final boolean writeAllRead,
             final boolean posInSrc,
             final boolean posInDst) throws IOException {
-        final boolean concurrentDst = !posInDst;
-
-        final int dstInitialPos;
-        if (posInDst) {
-            dstInitialPos = dstPos;
-        } else {
-            dstInitialPos = dst.position();
-        }
 
         int nDone = 0;
         
-        if (dst.isDirect()) {
-            final ByteBuffer dstModifiable;
-            if (concurrentDst) {
-                dstModifiable = dst.duplicate();
-            } else {
-                dstModifiable = dst;
-            }
-            
-            final int dstInitialLim = dstModifiable.limit();
-            dstModifiable.limit(dstPos + n);
-            dstModifiable.position(dstPos);
-            
-            // Uses a single native copy.
-            final int nReadOrM1_unused = src.read(dstModifiable, srcPos);
-            // We can avoid to rely on read's result.
-            nDone = n - dstModifiable.remaining();
-            
-            setLimIfNeeded(dst, dstInitialLim);
-            
-            if (posInDst) {
-                if(ASSERTIONS)assert(dstModifiable == dst);
-                // has been updated
-            } else {
-                if (dstModifiable == dst) {
-                    // undoing position update
-                    dst.position(dstInitialPos);
+        try {
+            if (dst.isDirect()) {
+                // TODO There is a risk of overlapping if dst
+                // is a ByteBuffer mapped on FileChannel's file,
+                // but we can't figure it out, so in that case
+                // the copy might be messed-up, unless read
+                // implementation takes care of it.
+                final ByteBuffer dstModifiable;
+                if (posInDst) {
+                    dstModifiable = dst;
+                } else {
+                    dstModifiable = dst.duplicate();
                 }
-            }
-        } else {
-            if ((this.mbbHelper != null)
-                    && (this.mbbHelper.canMapAndUnmap(src, MapMode.READ_ONLY))) {
-                while (nDone < n) {
-                    final int nRemaining = (n-nDone);
-                    final int tmpN = Math.min(nRemaining, this.maxMBBChunkSize);
-                    final ByteBuffer srcMBB = this.mbbHelper.map(src, MapMode.READ_ONLY, srcPos + nDone, tmpN);
-                    try {
-                        // mbb to dst
-                        // Uses a single native copy.
-                        srcMBB.get(dst.array(), dst.arrayOffset()+dstPos + nDone, tmpN);
-                    } finally {
-                        this.mbbHelper.unmap(src, srcMBB);
-                    }
-
-                    nDone += tmpN;
-                }
-                if(ASSERTIONS)assert(nDone == n);
-            } else {
-                final ByteBuffer tmpBB = this.getTmpDirectBB(n);
-                while (nDone < n) {
-                    final int nRemaining = (n-nDone);
+                
+                final int dstInitialLim = dstModifiable.limit();
+                try {
+                    dstModifiable.limit(dstPos + n);
+                    dstModifiable.position(dstPos);
                     
-                    tmpBB.clear();
-                    if (nRemaining < tmpBB.capacity()) {
-                        tmpBB.limit(asInt(nRemaining));
-                    }
-                    final int tmpN = tmpBB.remaining();
-                    
-                    // src to tmp
-                    final int tmpNReadOrM1_unused = src.read(tmpBB, srcPos + nDone);
+                    // Uses a single native copy.
+                    final int nReadOrM1_unused = src.read(dstModifiable, srcPos);
                     // We can avoid to rely on read's result.
-                    final int tmpNDone = tmpN - tmpBB.remaining();
-                    
-                    // tmp to dst
-                    tmpBB.flip();
-                    tmpBB.get(dst.array(), dst.arrayOffset()+dstPos + nDone, tmpNDone);
-                    
-                    nDone += tmpNDone;
-                    if (tmpNDone != tmpN) {
-                        // Giving up.
-                        break;
+                    nDone = n - dstModifiable.remaining();
+                } finally {
+                    // In case it is dst.
+                    setLimIfNeeded(dstModifiable, dstInitialLim);
+                }
+            } else {
+                if (ALLOW_MBB
+                        && (n >= this.mbbThreshold)
+                        && (this.mbbHelper != null)
+                        && (this.mbbHelper.canMapAndUnmap(src, MapMode.READ_ONLY))) {
+                    while (nDone < n) {
+                        final int nRemaining = (n-nDone);
+                        final int tmpN = Math.min(nRemaining, this.maxMBBChunkSize);
+                        final ByteBuffer srcMBB = this.mbbHelper.map(src, MapMode.READ_ONLY, srcPos + nDone, tmpN);
+                        try {
+                            // mbb to dst
+                            // Uses a single native copy.
+                            srcMBB.get(dst.array(), dst.arrayOffset()+dstPos + nDone, tmpN);
+                        } finally {
+                            this.mbbHelper.unmap(src, srcMBB);
+                        }
+
+                        nDone += tmpN;
+                    }
+                } else {
+                    final ByteBuffer tmpBB = this.getTmpDirectBB(n);
+                    while (nDone < n) {
+                        final int nRemaining = (n-nDone);
+                        
+                        tmpBB.clear();
+                        if (nRemaining < tmpBB.capacity()) {
+                            tmpBB.limit(asInt(nRemaining));
+                        }
+                        final int tmpN = tmpBB.remaining();
+                        
+                        // src to tmp
+                        final int tmpNReadOrM1_unused = src.read(tmpBB, srcPos + nDone);
+                        // We can avoid to rely on read's result.
+                        final int tmpNDone = tmpN - tmpBB.remaining();
+                        
+                        // tmp to dst
+                        tmpBB.flip();
+                        tmpBB.get(dst.array(), dst.arrayOffset()+dstPos + nDone, tmpNDone);
+                        
+                        nDone += tmpNDone;
+                        if (tmpNDone != tmpN) {
+                            // Giving up.
+                            break;
+                        }
                     }
                 }
             }
-            if (posInDst) {
-                dst.position(dstPos + nDone);
+        } finally {
+            try {
+                // Not uselessly setting position,
+                // since it causes an IO.
+                if (posInSrc && (nDone != 0)) {
+                    src.position(srcPos + nDone);
+                }
+            } finally {
+                if (posInDst) {
+                    setPosIfNeeded(dst, dstPos + nDone);
+                } else {
+                    // Did not modify dst (concurrency = .duplicate()).
+                }
             }
-        }
-        if (posInSrc) {
-            src.position(srcPos + nDone);
         }
         
         return nDone;
@@ -1308,147 +1464,42 @@ public class ByteCopyUtils {
             final FileChannel dst,
             final long dstPos,
             final long n,
-            final boolean readAllCount,
-            final boolean writeAllRead,
             final boolean posInSrc,
-            final boolean posInDst,
-            final long dstInitialSize) throws IOException {
-        
-        final boolean concurrentSrc = !posInSrc;
-        final boolean concurrentDst = !posInDst;
-        
-        final long srcInitialPos;
-        if (posInSrc) {
-            srcInitialPos = srcPos;
-        } else {
-            srcInitialPos = src.position();
-        }
+            final boolean posInDst) throws IOException {
 
-        final long dstInitialPos;
-        if (posInDst) {
-            dstInitialPos = dstPos;
-        } else {
-            dstInitialPos = dst.position();
-        }
+        // Taking care of copy direction, in case src and dst
+        // correspond to a same file.
+        // Going backward can decrease performances if files
+        // are different, since it might first grow dst file
+        // to its target size, and then fill up lower bytes.
+        final boolean copyBackward = (srcPos < dstPos);
 
         long nDone = 0;
         
-        if (!concurrentDst) {
-            /*
-             * dst not used concurrently, so we try to use src.transferTo(...),
-             * hoping that it resolves to kernel's copy, and if it does not,
-             * we hope that channel's implementation is still fast, using
-             * mapped buffers and then unmaping them.
-             */
-            if(ASSERTIONS)assert(!posInSrc);
-            
-            final boolean useTransfertTo;
-            if (dstPos == dstInitialPos) {
-                useTransfertTo = true;
-            } else {
-                dst.position(dstPos);
-                if (dst.position() != dstPos) {
-                    // Most likely dst is in append mode,
-                    // so we can't use src.transferTo(...)
-                    // with the specified dstPos.
-                    useTransfertTo = false;
-                } else {
-                    useTransfertTo = true;
-                }
-            }
-            if (useTransfertTo) {
-                // Uses kernel's copy,
-                // else map/write(mbb),
-                // else tmp/read(bb,int)/write(bb).
-                nDone = src.transferTo(srcPos, n, dst);
-                
-                if (posInSrc) {
-                    src.position(srcPos + nDone);
-                }
-                if (posInDst) {
-                    // has been updated
-                } else {
-                    dst.position(dstInitialPos);
-                }
-                return nDone;
-            }
-        }
-
-        if ((this.mbbHelper != null)
-                && (this.mbbHelper.canMapAndUnmap(src, MapMode.READ_ONLY))) {
-            while (nDone < n) {
-                final long nRemaining = (n-nDone);
-                final long tmpN = Math.min(nRemaining, this.maxMBBChunkSize);
-                final ByteBuffer srcMBB = this.mbbHelper.map(src, MapMode.READ_ONLY, srcPos + nDone, tmpN);
-                try {
-                    final long tmpNWritten = dst.write(srcMBB, dstPos + nDone);
-                    nDone += tmpNWritten;
-                    if (tmpNWritten != tmpN) {
-                        // Giving up.
-                        break;
-                    }
-                } finally {
-                    this.mbbHelper.unmap(src, srcMBB);
-                }
-            }
-            if (posInSrc) {
-                src.position(srcPos + nDone);
-            }
-            if (posInDst) {
-                dst.position(dstPos + nDone);
-            }
-        } else {
-            // TODO Taking care not to use transferFrom
-            // if dstPos > dst.size(), because in that case
-            // it doesn't transfer anything. If that is
-            // considered a bug and gets changed, and not
-            // caring about backward compatibility, could
-            // remove this trick (and dstInitialSize arg).
-            final boolean useTransferFrom;
-            if (concurrentSrc || (dstPos > dstInitialSize)) {
-                useTransferFrom = false;
-            } else {
-                if (srcPos == srcInitialPos) {
-                    useTransferFrom = true;
-                } else {
-                    src.position(srcPos);
-                    if (src.position() != srcPos) {
-                        // Most likely src is in append mode,
-                        // so we can't use dst.transferFrom(...)
-                        // with the specified srcPos.
-                        useTransferFrom = false;
-                    } else {
-                        useTransferFrom = true;
+        try {
+            if (ALLOW_MBB
+                    && (n >= this.mbbThreshold)
+                    && (((!copyBackward) && ALLOW_MBB_FOR_FORWARD_FC_FC_COPIES)
+                            || (copyBackward && ALLOW_MBB_FOR_BACKWARD_FC_FC_COPIES))
+                    && (this.mbbHelper != null)
+                    && (this.mbbHelper.canMapAndUnmap(src, MapMode.READ_ONLY))) {
+                while (nDone < n) {
+                    final long nRemaining = (n-nDone);
+                    final int tmpN = minP(nRemaining, this.maxMBBChunkSize);
+                    final long tmpOffset = (copyBackward ? (nRemaining-tmpN) : nDone);
+                    final ByteBuffer srcMBB = this.mbbHelper.map(src, MapMode.READ_ONLY, srcPos + tmpOffset, tmpN);
+                    try {
+                        final int tmpNWritten = writeByChunks(srcMBB, dst, dstPos + tmpOffset);
+                        nDone += tmpNWritten;
+                        if (tmpNWritten != tmpN) {
+                            // Giving up.
+                            break;
+                        }
+                    } finally {
+                        this.mbbHelper.unmap(src, srcMBB);
                     }
                 }
-            }
-            if (useTransferFrom) {
-                /*
-                 * We hope that channel's implementation
-                 * is fast, using mapped buffers and
-                 * then unmaping them.
-                 */
-                if(ASSERTIONS)assert(!posInDst);
-                
-                // Uses map/write(mbb,int),
-                // else tmp/read(bb)/write(bb,int).
-                nDone = dst.transferFrom(src, dstPos, n);
-
-                if (posInSrc) {
-                    // has been updated
-                } else {
-                    src.position(srcInitialPos);
-                }
-                if (posInDst) {
-                    dst.position(dstPos + nDone);
-                }
             } else {
-                /*
-                 * Can't use transfer methods, which modify
-                 * either src or dst position.
-                 */
-                if(ASSERTIONS)assert(!posInSrc);
-                if(ASSERTIONS)assert(!posInDst);
                 final ByteBuffer tmpBB = this.getTmpDirectBB(n);
                 while (nDone < n) {
                     final long nRemaining = (n-nDone);
@@ -1459,14 +1510,16 @@ public class ByteCopyUtils {
                     }
                     final int tmpN = tmpBB.remaining();
 
+                    final long tmpOffset = (copyBackward ? (nRemaining-tmpN) : nDone);
+                    
                     // src to tmp
-                    final int tmpNReadOrM1_unused = src.read(tmpBB, srcPos + nDone);
+                    final int tmpNReadOrM1_unused = src.read(tmpBB, srcPos + tmpOffset);
                     // We can avoid to rely on read's result.
                     final int tmpNRead = tmpN - tmpBB.remaining();
 
                     // tmp to dst
                     tmpBB.flip();
-                    final int tmpNWritten = dst.write(tmpBB, dstPos + nDone);
+                    final int tmpNWritten = writeByChunks(tmpBB, dst, dstPos + tmpOffset);
 
                     nDone += tmpNWritten;
                     if (tmpNWritten != tmpNRead) {
@@ -1475,8 +1528,64 @@ public class ByteCopyUtils {
                     }
                 }
             }
+        } finally {
+            // Not uselessly setting position,
+            // since it causes an IO.
+            if (nDone != 0) {
+                try {
+                    if (posInSrc) {
+                        src.position(srcPos + nDone);
+                    }
+                } finally {
+                    if (posInDst) {
+                        dst.position(dstPos + nDone);
+                    }
+                }
+            }
         }
 
+        return nDone;
+    }
+    
+    /*
+     * 
+     */
+    
+    /**
+     * @param srcDirModBB Must be direct and modifiable (position and limit)
+     *        (i.e. not concurrently used).
+     * @return The number of bytes copied, possibly 0.
+     */
+    private int writeByChunks(
+            final ByteBuffer srcDirModBB,
+            final FileChannel dst,
+            final long dstPos) throws IOException {
+        if(ASSERTIONS)assert(srcDirModBB.isDirect());
+        
+        if (false) {
+            // If not by chunks.
+            // Uses a single native copy.
+            return dst.write(srcDirModBB, dstPos);
+        }
+
+        int nDone = 0;
+        final int srcInitialPos = srcDirModBB.position();
+        final int n = srcDirModBB.remaining();
+        while (nDone < n) {
+            final int nRemaining = (n-nDone);
+
+            final int tmpN = Math.min(nRemaining, this.maxWriteChunkSize);
+
+            // src chunk to dst
+            srcDirModBB.limit(srcInitialPos + nDone + tmpN);
+            srcDirModBB.position(srcInitialPos + nDone);
+            final int tmpNWritten = dst.write(srcDirModBB, dstPos + nDone);
+            nDone += tmpNWritten;
+            if (tmpNWritten != tmpN) {
+                // Giving up.
+                break;
+            }
+        }
         return nDone;
     }
     
@@ -1510,7 +1619,7 @@ public class ByteCopyUtils {
             // Using max capacity right away for thread-local temporary ByteBuffers.
             return this.tlTmpDirectBB.get();
         } else {
-            final int minimalCap = minP(n, this.maxChunkSize);
+            final int minimalCap = minP(n, this.maxTmpChunkSize);
             ByteBuffer bb = this.tmpDirectBB;
             if (bb == null) {
                 // Not creating bigger than needed.
@@ -1519,7 +1628,7 @@ public class ByteCopyUtils {
             } else {
                 if (bb.capacity() < minimalCap) {
                     // Too small: at least doubling capacity, up to max capacity.
-                    final int newCap = Math.min(this.maxChunkSize, Math.max(minimalCap, 2*bb.capacity()));
+                    final int newCap = Math.min(this.maxTmpChunkSize, Math.max(minimalCap, 2*bb.capacity()));
                     bb = ByteBuffer.allocateDirect(newCap);
                     this.tmpDirectBB = bb;
                 }
@@ -1529,7 +1638,8 @@ public class ByteCopyUtils {
     }
 
     /**
-     * Setting position only if needed allows not to uselessly discard mark.
+     * Setting position only if needed allows not to uselessly discard mark,
+     * and to avoid useless/dangerous(concurrency) writes.
      */
     private static void setPosIfNeeded(ByteBuffer bb, int pos) {
         if (bb.position() != pos) {
@@ -1537,6 +1647,9 @@ public class ByteCopyUtils {
         }
     }
 
+    /**
+     * To avoid useless/dangerous(concurrency) writes.
+     */
     private static void setLimIfNeeded(ByteBuffer bb, int lim) {
         if (bb.limit() != lim) {
             bb.limit(lim);

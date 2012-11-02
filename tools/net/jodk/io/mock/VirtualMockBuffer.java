@@ -15,6 +15,7 @@
  */
 package net.jodk.io.mock;
 
+import java.nio.BufferOverflowException;
 import java.nio.ByteBuffer;
 
 import net.jodk.lang.LangUtils;
@@ -29,7 +30,8 @@ import net.jodk.lang.NumbersUtils;
  * 
  * Also, some bytes can be put through put(long,byte) method,
  * into a ByteBuffer which is positionned (in the virtual buffer)
- * on first put, which allows for a few contiguous puts.
+ * on first put, as centered on it as possible, which allows for
+ * a few contiguous puts (forward or backward).
  * This local ByteBuffer is initialized with content provided
  * by backing InterfaceMockContent implementation, and then
  * get(long) method always returns data from the ByteBuffer
@@ -159,15 +161,73 @@ public class VirtualMockBuffer implements InterfaceMockBuffer {
     @Override
     public void put(long position, byte b) {
         this.checkPosition(position);
-        if (this.ensureLocalBufferUpTo(position)) {
+        if (this.tryEnsureLocalBufferOn(position)) {
             final int index = NumbersUtils.asInt(position - this.localBufferOffset);
             this.localBuffer.put(index, b);
         } else {
-            final long minPos = this.localBufferOffset;
-            final long maxPos = (this.localBufferOffset+this.localBufferCapacity-1);
-            throw new IllegalArgumentException("position ["+position+"] not in local buffer range ["+minPos+","+maxPos+"]");
+            this.throwIAE_notInLocalBufferRange(position);
         }
     }
+
+    /**
+     * If local buffer does not exist, it is created centered
+     * on the middle of the destination range.
+     * 
+     * @throws NullPointerException if the specified buffer is null.
+     * @throws IndexOutOfBoundsException if the specified position
+     *         is < 0 or >= limit.
+     * @throws BufferOverflowException if there is insufficient space
+     *         in this buffer for the remaining bytes in the specified buffer.
+     * @throws IllegalArgumentException if destination range is outside local buffer range.
+     */
+    @Override
+    public void put(long position, ByteBuffer src) {
+        LangUtils.checkNonNull(src);
+        this.checkPosition(position);
+        
+        final int remaining = src.remaining();
+        if (remaining == 0) {
+            return;
+        }
+        final long dstMidPos = position + remaining/2;
+        
+        final boolean clearIfThrow = (this.localBuffer == null);
+        if (this.tryEnsureLocalBufferOn(dstMidPos)) {
+            // Checking that whole destination range is in local buffer range.
+            if (!this.isInLocalBufferRange(position)) {
+                if (clearIfThrow) {
+                    this.deleteLocalBuffer();
+                }
+                this.throwIAE_notInLocalBufferRange(position);
+            }
+            final long dstMax = position+remaining;
+            if (!this.isInLocalBufferRange(dstMax)) {
+                if (clearIfThrow) {
+                    this.deleteLocalBuffer();
+                }
+                this.throwIAE_notInLocalBufferRange(dstMax);
+            }
+            if (dstMax > this.limit) {
+                if (clearIfThrow) {
+                    this.deleteLocalBuffer();
+                }
+                throw new BufferOverflowException();
+            }
+            
+            // Allows not to modify local buffer, which allows concurrent usage,
+            // and also allows to make sure we don't put a same ByteBuffer
+            // into itself, which is not allowed by ByteBuffer.put(ByteBuffer).
+            final ByteBuffer bd = this.localBuffer.duplicate();
+            bd.position(NumbersUtils.asInt(position - this.localBufferOffset));
+            bd.put(src);
+        } else {
+            this.throwIAE_notInLocalBufferRange(dstMidPos);
+        }
+    }
+
+    /*
+     * 
+     */
     
     /**
      * @return The local buffer, or null if there is none.
@@ -201,29 +261,38 @@ public class VirtualMockBuffer implements InterfaceMockBuffer {
     // PRIVATE METHODS
     //--------------------------------------------------------------------------
     
-    private boolean ensureLocalBufferUpTo(long position) {
+    private boolean tryEnsureLocalBufferOn(long position) {
         if (this.localBufferCapacity == 0) {
             return false;
         }
         
         if (this.localBuffer == null) {
             this.localBuffer = ByteBuffer.allocate(this.localBufferCapacity);
-            this.localBufferOffset = Math.min(position,Long.MAX_VALUE-this.localBufferCapacity);
+            this.localBufferOffset =
+                Math.max(0,
+                        Math.min(
+                                position-this.localBufferCapacity/2,
+                                Long.MAX_VALUE-this.localBufferCapacity));
             for (int i=0;i<this.localBufferCapacity;i++) {
                 this.localBuffer.put(i, this.content.get(this.localBufferOffset + i));
             }
             return true;
         } else {
-            final long indexLong = position - this.localBufferOffset;
-            if (indexLong < 0) {
-                // Can't move local buffer backward.
-                return false;
-            } else if (indexLong >= this.localBufferCapacity) {
-                return false;
-            } else {
-                return true;
-            }
+            return this.isInLocalBufferRange(position);
         }
+    }
+    
+    private boolean isInLocalBufferRange(long position) {
+        if (this.localBuffer == null) {
+            throw new AssertionError();
+        }
+        return (position >= this.localBufferOffset) && (position < this.localBufferOffset+this.localBufferCapacity);
+    }
+    
+    private void throwIAE_notInLocalBufferRange(long position) {
+        final long minPos = this.localBufferOffset;
+        final long maxPos = (this.localBufferOffset+this.localBufferCapacity-1);
+        throw new IllegalArgumentException("position ["+position+"] not in local buffer range ["+minPos+","+maxPos+"]");
     }
     
     private void checkPosition(long position) {

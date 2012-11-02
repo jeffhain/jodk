@@ -2101,8 +2101,10 @@ public class DataBuffer implements Comparable<DataBuffer> {
      * applied on indexes and size arguments.
      * 
      * If your DataBuffers are backed by ByteBuffers, you might want to use
-     * some ByteCopyUtils methods on these ByteBuffers instead, see
-     * ByteBufferUtils.bufferCopy(...) Javadoc.
+     * some ByteCopyUtils methods on these ByteBuffers instead:
+     * they might generate garbage, but might also be much faster due to use of
+     * native copies, and they also allow copies between ByteBuffers of
+     * different orders.
      * 
      * @param src The source buffer.
      * @param srcFirstByteIndex Starting byte index in the source buffer.

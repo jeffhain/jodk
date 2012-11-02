@@ -39,7 +39,9 @@ import net.jodk.threading.locks.MonitorCondilock;
 /**
  * Mock FileChannel, using a specified InterfaceMockBuffer implementation.
  * 
- * Behavior is undefined if multiple MockFileChannel share a same mock buffer.
+ * The case of overlapping memory is only handled for write methods,
+ * through the use of mock buffer's bulk put method, which is also
+ * supposed to handle it.
  */
 public class MockFileChannel extends FileChannel {
 
@@ -754,6 +756,9 @@ public class MockFileChannel extends FileChannel {
             }
             final long toTransfer = minPos(toTransferSrcCount, dstRem);
             final long srcToDstPosShift = dstPos - srcPos;
+            // TODO all this can be simplified now, now that we have
+            // bulk put ? (if this or instanceof MockFileChannel...)
+            // TODO plus le comment bla bla sur doit pas sharer...
             if (srcToDstPosShift > 0) {
                 /*
                  * copying from last to first
@@ -1097,9 +1102,14 @@ public class MockFileChannel extends FileChannel {
             this.buffer.limit(neededLimit);
         }
         
-        for (int i=0;i<toWrite;i++) {
-            this.buffer.put(dstPos + i, src.get());
-        }
+        // One-shot copy if possible, which allows for testing
+        // copies between channels sharing memory (actual channels
+        // hopefully do it as well), and should also be faster for
+        // large copies.
+        final int srcInitialLim = src.limit();
+        src.limit(src.position() + toWrite);
+        this.buffer.put(dstPos, src);
+        src.limit(srcInitialLim);
     }
     
     /*

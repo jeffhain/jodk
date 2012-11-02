@@ -26,8 +26,6 @@ import net.jodk.lang.NumbersUtils;
  * 
  * The backing ByteBuffer holds both the content and the limit
  * of the mock buffer.
- * 
- * @Deprecated using mock buffer that always returns "(byte)position/put" instead
  */
 public class ByteBufferMockBuffer implements InterfaceMockBuffer {
 
@@ -100,6 +98,19 @@ public class ByteBufferMockBuffer implements InterfaceMockBuffer {
     public void put(long position, byte b) {
         this.checkPosition(position);
         this.bb.put(NumbersUtils.asInt(position), b);
+    }
+
+    @Override
+    public void put(long position, ByteBuffer src) {
+        LangUtils.checkNonNull(src);
+        this.checkPosition(position);
+        
+        // Allows not to modify this.bb, which allows concurrent usage,
+        // and also allows to make sure we don't put a same ByteBuffer
+        // into itself, which is not allowed by ByteBuffer.put(ByteBuffer).
+        final ByteBuffer bd = this.bb.duplicate();
+        bd.position(NumbersUtils.asInt(position));
+        bd.put(src);
     }
     
     //--------------------------------------------------------------------------

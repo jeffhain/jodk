@@ -363,14 +363,10 @@ public class ByteBufferUtils {
      * Equivalent to calling bufferCopyBits(...) version with "* 8L"
      * applied on indexes and size arguments.
      * 
-     * You might want to use
-     * ByteCopyUtils.readAllAtAndWriteAllAt(...)
-     * or
-     * ByteCopyUtils.readAtAndWriteAt(...)
-     * methods instead of this one, for they can be much faster due to use of
-     * native copies, and also allow copies between ByteBuffers of different
-     * orders, but they might create garbage, and might not handle some cases
-     * of overlapping src and dst memory.
+     * You might want to use ByteCopyUtils methods instead of this one:
+     * they might generate garbage, but might also be much faster due to use of
+     * native copies, and they also allow copies between ByteBuffers of
+     * different orders.
      * 
      * @param src The source buffer.
      * @param srcFirstByteIndex Starting byte index in the source buffer.

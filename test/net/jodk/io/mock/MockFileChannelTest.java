@@ -146,7 +146,7 @@ public class MockFileChannelTest extends TestCase {
             // ok
         }
         
-        VirtualMockBuffer buffer = new VirtualMockBuffer(DEFAULT_CAPACITY);
+        VirtualMockBuffer buffer = new VirtualMockBuffer(2*DEFAULT_CAPACITY);
         for (boolean readable : new boolean[]{false,true}) {
             for (boolean writable : new boolean[]{false,true}) {
                 for (boolean appendMode : new boolean[]{false,true}) {
@@ -1744,14 +1744,6 @@ public class MockFileChannelTest extends TestCase {
                             // No need to fill channel, which always returns (byte)position.
 
                             mb.deleteLocalBuffer();
-                            if (expectedNTransfered > 0) {
-                                // To create local buffer, starting at dstPos.
-                                // If we don't do it, reverse-copies won't work
-                                // if local buffer is created too far up.
-                                mb.limit(Long.MAX_VALUE);
-                                mb.put(dstPos, mb.get(dstPos));
-                                mb.limit(channelLimDst);
-                            }
                             
                             /*
                              * transfer (might increase limit)
@@ -1846,14 +1838,6 @@ public class MockFileChannelTest extends TestCase {
                             // No need to fill channel, which always returns (byte)position.
 
                             mb.deleteLocalBuffer();
-                            if (expectedNTransfered > 0) {
-                                // To create local buffer, starting at dstPos.
-                                // If we don't do it, reverse-copies won't work
-                                // if local buffer is created too far up.
-                                mb.limit(Long.MAX_VALUE);
-                                mb.put(dstPos, mb.get(dstPos));
-                                mb.limit(channelLimSrc);
-                            }
                             
                             /*
                              * transfer (might increase limit)
@@ -2298,7 +2282,7 @@ public class MockFileChannelTest extends TestCase {
         for (boolean readable : new boolean[]{false,true}) {
             for (boolean writable : new boolean[]{false,true}) {
                 for (boolean appendMode : new boolean[]{false,true}) {
-                    VirtualMockBuffer buffer = new VirtualMockBuffer(DEFAULT_CAPACITY);
+                    VirtualMockBuffer buffer = new VirtualMockBuffer(2*DEFAULT_CAPACITY);
                     MockFileChannel channel = new MockFileChannel(buffer, readable, writable, appendMode);
                     channels.add(channel);
                 }
@@ -2308,8 +2292,8 @@ public class MockFileChannelTest extends TestCase {
     }
 
     /**
-     * Channels which backing mock buffer's put method never does anything.
-     * Useful for successive puts at random location, when not caring about
+     * Channels which backing mock buffer's put methods never does anything.
+     * Useful for successive puts at random locations, when not caring about
      * channel's content.
      */
     private static ArrayList<MockFileChannel> newChannelsPureVirtual() {
@@ -2320,6 +2304,10 @@ public class MockFileChannelTest extends TestCase {
                     VirtualMockBuffer buffer = new VirtualMockBuffer(0) {
                         @Override
                         public void put(long position, byte b) {
+                            // quiet
+                        }
+                        @Override
+                        public void put(long position, ByteBuffer src) {
                             // quiet
                         }
                     };

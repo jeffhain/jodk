@@ -48,6 +48,24 @@ alternatives to those of JDK.
 -- VERSIONS
 --------------------------------------------------------------------------------
 
+- 2012/11/02 modifications (non-tagged):
+  - ByteCopyUtils upgrade:
+    - Overlapping ranges are now handled for copies between ByteBuffers and
+      between FileChannels, but still not for copies between (mapped)
+      ByteBuffers and FileChannels since there is no way to find out if and how
+      they overlap.
+    - src and dst positions, and possibly limits, are now properly restored
+      or updated in case of exceptions.
+    - Added a max chunk size for writes into FileChannels, for writes of
+      large ByteBuffers (event if direct) were found to be slow on WinXP/7.
+    - Enlarged max temporary ByteBuffers size from 8*1024 to 32*1024 bytes.
+    - Optimizations, including complete disabling of MBBs usage (code still
+      there for experimentation purpose).
+    - Removed use of FileChannel.transferTo/transferFrom, for both simplicity
+      and performances.
+  - Updated some Javadocs in ByteBufferUtils and DataBufferUtils, in accordance
+    with ByteCopyUtils upgrades.
+
 - 2012/10/28 modifications (non-tagged):
   - API change: LangUtils.checkBounds(int,int,int) and
     LangUtils.checkBounds(long,long,long) now can only throw

@@ -34,11 +34,17 @@ import net.jodk.lang.NumbersUtils;
 class MockMBBHelper implements InterfaceMBBHelper {
     
     //--------------------------------------------------------------------------
-    // PUBLIC METHODS
+    // MEMBERS
     //--------------------------------------------------------------------------
     
-    public MockMBBHelper() {
-    }
+    /**
+     * The instance.
+     */
+    public static final MockMBBHelper INSTANCE = new MockMBBHelper();
+
+    //--------------------------------------------------------------------------
+    // PUBLIC METHODS
+    //--------------------------------------------------------------------------
 
     @Override
     public boolean canMapAndUnmap(FileChannel channel, MapMode mode) {
@@ -118,5 +124,12 @@ class MockMBBHelper implements InterfaceMBBHelper {
     @Override
     public void unmap(FileChannel channel, ByteBuffer mbb) {
         // Nothing to unmap.
+    }
+    
+    //--------------------------------------------------------------------------
+    // PRIVATE METHODS
+    //--------------------------------------------------------------------------
+
+    private MockMBBHelper() {
     }
 }

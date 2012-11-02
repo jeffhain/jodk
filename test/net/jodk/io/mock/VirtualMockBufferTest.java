@@ -15,6 +15,7 @@
  */
 package net.jodk.io.mock;
 
+import java.nio.BufferOverflowException;
 import java.nio.ByteBuffer;
 
 import junit.framework.TestCase;
@@ -114,12 +115,15 @@ public class VirtualMockBufferTest extends TestCase {
         }
         {
             MyMockContent content = new MyMockContent(a,b);
-            VirtualMockBuffer mock = new VirtualMockBuffer(content,10);
+            final int lbc = 13;
+            VirtualMockBuffer mock = new VirtualMockBuffer(content,lbc);
             mock.limit(limit);
-            final long lbOffset = Long.MAX_VALUE/17;
-            mock.put(lbOffset, (byte)0);
+            final long firstPutPos = Long.MAX_VALUE/17;
+            final long lbOffset = firstPutPos-lbc/2;
+            mock.put(firstPutPos, (byte)0);
             assertEquals(
-                    "[content="+content.toString()+",limit="+limit
+                    "[content="+content.toString()
+                    +",limit="+limit
                     +",localBufferOffset="+lbOffset
                     +",localBuffer="+mock.getLocalBufferElseNull()
                     +"]", mock.toString());
@@ -178,7 +182,7 @@ public class VirtualMockBufferTest extends TestCase {
     }
     
     public void test_put_long_byte_and_getLocalBufferElseNull_and_getLocalBufferOffset_and_deleteLocalBuffer() {
-        for (long firstPutPos : new long[]{1,Long.MAX_VALUE-3}) {
+        for (long firstPutPos : new long[]{1,1000,Long.MAX_VALUE-3}) {
             final long a = 3;
             final long b = 5;
             final int lbc = 10;
@@ -202,8 +206,11 @@ public class VirtualMockBufferTest extends TestCase {
 
             final long minLocalPos;
             if (firstPutPos == 1) {
-                // Can put in [1..lbc].
-                minLocalPos = 1;
+                // Can put in [0..lbc-1].
+                minLocalPos = 0;
+            } else if (firstPutPos == 1000) {
+                // Can put in [1000-lbc/2..1000+lbc/2-1].
+                minLocalPos = 1000 - lbc/2;
             } else {
                 // Can put in [Long.MAX_VALUE-lbc..Long.MAX_VALUE-1].
                 minLocalPos = Long.MAX_VALUE-lbc;
@@ -258,8 +265,8 @@ public class VirtualMockBufferTest extends TestCase {
             
             for (int i=-1;i<=lbc;i++) {
                 final long pos = minLocalPos + i;
-                if (pos == Long.MAX_VALUE) {
-                    // nothing past local buffer
+                if ((pos < 0) || (pos == Long.MAX_VALUE)) {
+                    // irrelevant
                     continue;
                 }
                 final byte expectedB;
@@ -276,8 +283,8 @@ public class VirtualMockBufferTest extends TestCase {
              */
             
             for (long pos : new long[]{minLocalPos-1,maxLocalPos+1}) {
-                if (pos == Long.MAX_VALUE) {
-                    // nothing past local buffer
+                if ((pos < 0) || (pos == Long.MAX_VALUE)) {
+                    // irrelevant
                     continue;
                 }
                 try {
@@ -323,9 +330,11 @@ public class VirtualMockBufferTest extends TestCase {
             mock.deleteLocalBuffer();
             assertNull(mock.getLocalBufferElseNull());
             
-            final long newLocalBufferOffset = 1000;
+            final long newFirstPutPos = 2000;
+            mock.put(newFirstPutPos, (byte)0);
+            final long newLocalBufferOffset = newFirstPutPos-lbc/2;
             for (int i=0;i<lbc;i++) {
-                mock.put(newLocalBufferOffset + i, (byte)i);
+                mock.put(newLocalBufferOffset + i, (byte)0);
             }
             for (long pos : new long[]{newLocalBufferOffset-1,newLocalBufferOffset+lbc}) {
                 try {
@@ -335,6 +344,155 @@ public class VirtualMockBufferTest extends TestCase {
                     // ok
                 }
             }
+        }
+    }
+
+    /**
+     * Can't have overlapping copies with these buffers,
+     * since each writes in its own local ByteBuffer.
+     */
+    public void test_put_long_ByteBuffer() {
+        final int lbc = 23;
+        final int limitToMax = 3;
+        final long limit = Long.MAX_VALUE-limitToMax;
+        PositionMockContent content = new PositionMockContent();
+        VirtualMockBuffer mock = new VirtualMockBuffer(content,lbc);
+        mock.limit(limit);
+        
+        /*
+         * 
+         */
+        
+        try {
+            mock.put(0,(ByteBuffer)null);
+            assertTrue(false);
+        } catch (NullPointerException e) {
+            // ok
+        }
+        
+        final int srcCap = 2*lbc;
+        ByteBuffer src = ByteBuffer.allocate(srcCap);
+
+        for (long pos : new long[]{Long.MIN_VALUE,-1,limit,Long.MAX_VALUE}) {
+            try {
+                mock.put(pos,src);
+                assertTrue(false);
+            } catch (IndexOutOfBoundsException e) {
+                // ok
+            }
+        }
+        // Not changed.
+        assertEquals(0, src.position());
+        assertEquals(srcCap, src.limit());
+        
+        // Filling src.
+        for (int i=0;i<srcCap;i++) {
+            src.put(i, (byte)(i+1));
+        }
+        
+        /*
+         * buffer overflow
+         */
+        
+        mock.limit(1000);
+        src.limit(10);
+        src.position(0);
+        try {
+            mock.put(995,src);
+            assertTrue(false);
+        } catch (BufferOverflowException e) {
+            // ok
+        }
+        assertEquals(10, src.limit());
+        assertEquals(0, src.position());
+        assertNull(mock.getLocalBufferElseNull());
+        mock.limit(limit);
+        
+        /*
+         * 
+         */
+        
+        // Too large : no put.
+        src.limit(lbc+1);
+        src.position(0);
+        try {
+            mock.put(0,src);
+            assertTrue(false);
+        } catch (IllegalArgumentException e) {
+            // ok
+        }
+        assertEquals(lbc+1, src.limit());
+        assertEquals(0, src.position());
+        assertNull(mock.getLocalBufferElseNull());
+
+        // Forward overflow : no put.
+        src.limit(2*limitToMax);
+        src.position(0);
+        try {
+            mock.put(limit-1,src);
+            assertTrue(false);
+        } catch (IllegalArgumentException e) {
+            // ok
+        }
+        assertEquals(2*limitToMax, src.limit());
+        assertEquals(0, src.position());
+        assertNull(mock.getLocalBufferElseNull());
+
+        /*
+         * 
+         */
+        
+        // Creating mock buffer in the middle.
+        mock.put(limit/2, (byte)0);
+        ByteBuffer lb = mock.getLocalBufferElseNull();
+
+        // Backward overflow : no put.
+        src.limit(2);
+        src.position(0);
+        try {
+            mock.put(mock.getLocalBufferOffset()-1, src);
+            assertTrue(false);
+        } catch (IllegalArgumentException e) {
+            // ok
+        }
+        assertEquals(2, src.limit());
+        assertEquals(0, src.position());
+        assertSame(lb, mock.getLocalBufferElseNull());
+        
+        // Forward overflow : no put.
+        src.limit(2);
+        src.position(0);
+        try {
+            mock.put(mock.getLocalBufferOffset()+lb.capacity()-1, src);
+            assertTrue(false);
+        } catch (IllegalArgumentException e) {
+            // ok
+        }
+        assertEquals(2, src.limit());
+        assertEquals(0, src.position());
+        assertSame(lb, mock.getLocalBufferElseNull());
+
+        /*
+         * 
+         */
+        
+        // Put.
+        final long pos = mock.getLocalBufferOffset()+2;
+        final int srcLim = 13;
+        src.limit(srcLim);
+        src.position(0);
+        mock.put(pos, src);
+        assertEquals(srcLim, src.limit());
+        assertEquals(srcLim, src.position());
+        assertSame(lb, mock.getLocalBufferElseNull());
+        for (long i=pos-2*srcLim;i<pos;i++) {
+            assertEquals((byte)i, mock.get(i));
+        }
+        for (long i=0;i<srcLim;i++) {
+            assertEquals((i+1), mock.get(pos+i));
+        }
+        for (long i=srcLim;i<2*srcLim;i++) {
+            assertEquals((byte)(pos+i), mock.get(pos+i));
         }
     }
 }
