@@ -48,6 +48,26 @@ alternatives to those of JDK.
 -- VERSIONS
 --------------------------------------------------------------------------------
 
+- 2012/11/03 modifications (non-tagged):
+  - BUG FIX: ByteCopyUtils: The amount of bytes to actually copy was initially
+    computed, based on src/dst size and capacity, and then the copy was
+    performed. If not all of these bytes could be copied (reads or writes
+    copying less than expected), and the user did allow for it (not readAll
+    or writeAll), src or dst positions could be moved according to the amount
+    of bytes actually copied. But that wasn't relevant in case of backward
+    copies, since the copied bytes would typically be located elsewhere.
+    Now, if the initially computed amount of bytes to copy can't be fully
+    copied, an IOException is thrown (either "Unexpected underflow", or
+    "Unexpected overflow").
+    Note that this bug could only occur in exceptional cases, such as concurrent
+    truncation of src, or no space left on device.
+  - ByteCopyUtils: Backward copies being possibly slower than forward copies
+    (for cache reasons if done by forward-copied-chunks, as well as because
+    they might first grow dst and then copy into it), they are now only used
+    if there actually is overlapping, i.e. if (srcPos < dstPos) and
+    (srcPos + n > dstPos).
+  - Little cleanups.
+
 - 2012/11/02 modifications (non-tagged):
   - ByteCopyUtils upgrade:
     - Overlapping ranges are now handled for copies between ByteBuffers and
@@ -63,6 +83,11 @@ alternatives to those of JDK.
       there for experimentation purpose).
     - Removed use of FileChannel.transferTo/transferFrom, for both simplicity
       and performances.
+  - Added a bulk put method to InterfaceMockBuffer (and implementations),
+    to allow for MockFileChannel.write methods to handle overlapping
+    (which actual FileChannels don't always do!).
+  - VirtualMockBuffer's local buffer is now centered on first put position,
+    to allow for both forward and backward puts without prior preparation.
   - Updated some Javadocs in ByteBufferUtils and DataBufferUtils, in accordance
     with ByteCopyUtils upgrades.
 

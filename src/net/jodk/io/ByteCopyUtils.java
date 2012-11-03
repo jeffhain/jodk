@@ -27,7 +27,7 @@ import net.jodk.lang.NumbersUtils;
 
 /**
  * Class providing treatments to copy contiguous byte ranges between
- * ByteBuffers, between FileChannels, or between each other.
+ * ByteBuffers, between FileChannels, and between each other.
  * 
  * Various types of copies are provided, whether src and/or dst current
  * positions are used as copy positions, and whether the number of bytes to copy
@@ -36,9 +36,9 @@ import net.jodk.lang.NumbersUtils;
  * 
  * If src (or dst) copy position is specified (not using instance's one),
  * it allows for usage of the same instance of src (or dst) for non-overlapping
- * copies by multiple threads, but then no single thread must modify src (or dst)
- * position or limit/size concurrently, since these values will typically be read
- * by the (other) copying threads (for example, on ByteBuffer.duplicate()).
+ * copies by multiple threads, but then no single thread is allowed to modify src
+ * (or dst) position or limit/size concurrently, since these values will typically
+ * be read by the (other) copying threads (for example, on ByteBuffer.duplicate()).
  * 
  * Unlike ByteBuffer.put(ByteBuffer), these treatments allow src and dst
  * to be a same instance, even if src and dst copy positions are identical,
@@ -47,7 +47,7 @@ import net.jodk.lang.NumbersUtils;
  * and risky (surprising) exception being thrown.
  * 
  * Copies of overlapping ranges, i.e. when src and dst copy ranges overlap in
- * memory, is handled (to avoid the risk of erasing byte to copy with copied
+ * memory, are handled (to avoid the risk of erasing byte to copy with copied
  * bytes):
  * - for BB to BB copies, by counting on ByteBuffer's treatments to handle it,
  *   which they do by delegating to System.arraycopy(...) for heap ByteBuffers,
@@ -78,12 +78,6 @@ import net.jodk.lang.NumbersUtils;
  * return 0, and not -1 as some read methods do, to keep things simple, i.e.
  * for homogeneity with other nothing-copied cases.
  * 
- * A ByteBuffer or FileChannel for which copy position is specified (not using
- * its own position), can be used concurrently for multiple non-overlaping
- * copies, as long as none of these copies causes it to grow, i.e. modifies its
- * limit or size (in particular if using mapped buffers which behavior is
- * inherently undefined in such cases).
- * 
  * Treatments might use thread-local temporary ByteBuffers, which should be
  * small enough to allow for usage by many threads without too much memory
  * overhead.
@@ -94,13 +88,16 @@ import net.jodk.lang.NumbersUtils;
  * As a result, no ReadOnlyBufferException or NonWritableChannelException
  * is thrown unless an attempt to write data is actually made.
  * 
- * For copies involving ByteBuffers, we take care to properly restore
- * (in case of temporary usage allowed by non-concurrency) or update
- * (in case copy position is read from the ByteBuffer) their position
- * and possibly their limit after the copy, even in case of exception,
- * which requires some try/finally blocks.
- * Position update in case of exception is also taken care of for
- * FileChannels.
+ * If src or dst is a ByteBuffer or a FileChannel not in append mode, and that
+ * its initial position is used as copy position, if an exception is thrown
+ * during the copy, its position is reset (if it changed) to its initial
+ * position, and not moved according to the number of bytes copied, for the copy
+ * might have been done backward to avoid erasing bytes to copy with copied
+ * bytes, and we don't want the user to believe that some bytes were copied
+ * where they were not.
+ * On the other hand, in case of exception, src or dst limit or size might have
+ * been changed and is not reset to its initial value, both to fail fast, and
+ * to allow user to look at post-exception content state.
  * 
  * These methods are rather permissive about their arguments.
  * For example, if specified src position is past src size,
@@ -127,14 +124,6 @@ public class ByteCopyUtils {
      *   and allow for use of instance-local temporary ByteBuffers,
      *   which could help in case of high threads turnover that
      *   would make thread-local temporary ByteBuffers hurt.
-     *   
-     * - For BB to FC copies, can't use a mapped buffer as destination
-     *   buffer, for it would require to either know whether the channel
-     *   is readable (which is required for mapping), or have a WRITE_ONLY
-     *   mapping mode, useful for non-readable channel, none of which
-     *   is currently portably possible.
-     *   Note: this would require to call MappedByteBuffer.force()
-     *   for copy of each chunk.
      */
     
     /*
@@ -183,7 +172,7 @@ public class ByteCopyUtils {
      * ----------------------------------------------------+---------+---------+---------------+---------------+--------
      * dstC.write(srcB)                                    |   mod   |   mod   |     stops     |     grows     |
      * dstC.write(srcB,dstPos)                             |   mod   |   fix   |     stops     |     grows     |
-     * dstC.transferFrom(srcC,dstPos,count)                |   mod   |   fix   |     stops     |  stops/grows  | stops if dstPos > dst.size (TODO bug?)
+     * dstC.transferFrom(srcC,dstPos,count)                |   mod   |   fix   |     stops     |  stops/grows  | stops if dstPos > dst.size
      * ----------------------------------------------------+---------+---------+---------------+---------------+--------
      * JODK                                                |         |         |               |               |
      * ----------------------------------------------------+---------+---------+---------------+---------------+--------
@@ -276,7 +265,7 @@ public class ByteCopyUtils {
      *   map/write(mbb,int) (chunks <= 8Mio),
      *   else tmp/read(bb)/write(bb,int) (chunks <= 8Kio))
      *   (takes src position lock)
-     *   (can grow dst, but doesn't if dstPos > dst.size() (TODO bug?))
+     *   (can grow dst, but doesn't if dstPos > dst.size())
      * 
      * 
      * - FileChannel.map(...) : returns a MappedByteBuffer (direct).
@@ -318,7 +307,10 @@ public class ByteCopyUtils {
      * not observed on Linux): cutting the write in chunks if it is too large.
      * (For the same reason, not using FileChannel.transferTo/transferFrom.
      * FileChannel.read doesn't have that problem.)
-     * 
+     */
+    private static final boolean WRITE_BY_CHUNK = true;
+    
+    /**
      * Experimentally, 256Kio was found to be fast, and 512Kio quite slow,
      * so we use 32Kio, which is far enough from 256Kio to make "sure"
      * we are not slow, and large enough to make sure we are still fast.
@@ -444,7 +436,10 @@ public class ByteCopyUtils {
      * @return The number of bytes copied, possibly 0.
      * @throws NullPointerException if either src or dst is null.
      * @throws IllegalArgumentException if maxCount < 0.
-     * @throws IOException if thrown by underlying treatments.
+     * @throws IOException if thrown by underlying treatments, or if src is a
+     *         FileChannel and depletes earlier than indicated by its initial
+     *         size, or if dst is a FileChannel and all read bytes could not be
+     *         written in it.
      */
     public static long readAndWrite(Object src, Object dst, long maxCount) throws IOException {
         return DEFAULT_INSTANCE.readAndWrite_(src, dst, maxCount);
@@ -463,8 +458,12 @@ public class ByteCopyUtils {
      * @return The number of bytes copied, possibly 0.
      * @throws NullPointerException if either src or dst is null.
      * @throws IllegalArgumentException if maxCount < 0.
-     * @throws BufferOverflowException if could not write all read bytes into dst, possibly after some copying.
-     * @throws IOException if thrown by underlying treatments.
+     * @throws BufferOverflowException if dst capacity (Long.MAX_VALUE if FileChannel)
+     *         does not allow for all bytes to copy to be written.
+     * @throws IOException if thrown by underlying treatments, or if src is a
+     *         FileChannel and depletes earlier than indicated by its initial
+     *         size, or if dst is a FileChannel and all read bytes could not be
+     *         written in it.
      */
     public static long readAndWriteAll(Object src, Object dst, long maxCount) throws IOException {
         return DEFAULT_INSTANCE.readAndWriteAll_(src, dst, maxCount);
@@ -482,9 +481,14 @@ public class ByteCopyUtils {
      * @param count Number of bytes to copy.
      * @throws NullPointerException if either src or dst is null.
      * @throws IllegalArgumentException if count < 0.
-     * @throws BufferUnderflowException if could not read the specified number of bytes from src, possibly after some copying.
-     * @throws BufferOverflowException if could not write all read bytes into dst, possibly after some copying.
-     * @throws IOException if thrown by underlying treatments.
+     * @throws BufferUnderflowException if src initial size does not allow to
+     *         read count bytes.
+     * @throws BufferOverflowException if dst capacity (Long.MAX_VALUE if FileChannel)
+     *         does not allow for all bytes to copy to be written.
+     * @throws IOException if thrown by underlying treatments, or if src is a
+     *         FileChannel and depletes earlier than indicated by its initial
+     *         size, or if dst is a FileChannel and all read bytes could not be
+     *         written in it.
      */
     public static void readAllAndWriteAll(Object src, Object dst, long count) throws IOException {
         DEFAULT_INSTANCE.readAllAndWriteAll_(src, dst, count);
@@ -504,7 +508,10 @@ public class ByteCopyUtils {
      * @return The number of bytes copied, possibly 0.
      * @throws NullPointerException if either src or dst is null.
      * @throws IllegalArgumentException if maxCount < 0.
-     * @throws IOException if thrown by underlying treatments.
+     * @throws IOException if thrown by underlying treatments, or if src is a
+     *         FileChannel and depletes earlier than indicated by its initial
+     *         size, or if dst is a FileChannel and all read bytes could not be
+     *         written in it.
      */
     public static long readAndWriteAt(Object src, Object dst, long dstPos, long maxCount) throws IOException {
         return DEFAULT_INSTANCE.readAndWriteAt_(src, dst, dstPos, maxCount);
@@ -524,8 +531,12 @@ public class ByteCopyUtils {
      * @return The number of bytes copied, possibly 0.
      * @throws NullPointerException if either src or dst is null.
      * @throws IllegalArgumentException if maxCount < 0.
-     * @throws BufferOverflowException if could not write all read bytes into dst, possibly after some copying.
-     * @throws IOException if thrown by underlying treatments.
+     * @throws BufferOverflowException if dst capacity (Long.MAX_VALUE if FileChannel)
+     *         does not allow for all bytes to copy to be written.
+     * @throws IOException if thrown by underlying treatments, or if src is a
+     *         FileChannel and depletes earlier than indicated by its initial
+     *         size, or if dst is a FileChannel and all read bytes could not be
+     *         written in it.
      */
     public static long readAndWriteAllAt(Object src, Object dst, long dstPos, long maxCount) throws IOException {
         return DEFAULT_INSTANCE.readAndWriteAllAt_(src, dst, dstPos, maxCount);
@@ -544,9 +555,14 @@ public class ByteCopyUtils {
      * @param count Number of bytes to copy.
      * @throws NullPointerException if either src or dst is null.
      * @throws IllegalArgumentException if count < 0.
-     * @throws BufferUnderflowException if could not read the specified number of bytes from src, possibly after some copying.
-     * @throws BufferOverflowException if could not write all read bytes into dst, possibly after some copying.
-     * @throws IOException if thrown by underlying treatments.
+     * @throws BufferUnderflowException if src initial size does not allow to
+     *         read count bytes.
+     * @throws BufferOverflowException if dst capacity (Long.MAX_VALUE if FileChannel)
+     *         does not allow for all bytes to copy to be written.
+     * @throws IOException if thrown by underlying treatments, or if src is a
+     *         FileChannel and depletes earlier than indicated by its initial
+     *         size, or if dst is a FileChannel and all read bytes could not be
+     *         written in it.
      */
     public static void readAllAndWriteAllAt(Object src, Object dst, long dstPos, long count) throws IOException {
         DEFAULT_INSTANCE.readAllAndWriteAllAt_(src, dst, dstPos, count);
@@ -566,7 +582,10 @@ public class ByteCopyUtils {
      * @return The number of bytes copied, possibly 0.
      * @throws NullPointerException if either src or dst is null.
      * @throws IllegalArgumentException if maxCount < 0.
-     * @throws IOException if thrown by underlying treatments.
+     * @throws IOException if thrown by underlying treatments, or if src is a
+     *         FileChannel and depletes earlier than indicated by its initial
+     *         size, or if dst is a FileChannel and all read bytes could not be
+     *         written in it.
      */
     public static long readAtAndWrite(Object src, long srcPos, Object dst, long maxCount) throws IOException {
         return DEFAULT_INSTANCE.readAtAndWrite_(src, srcPos, dst, maxCount);
@@ -586,8 +605,12 @@ public class ByteCopyUtils {
      * @return The number of bytes copied, possibly 0.
      * @throws NullPointerException if either src or dst is null.
      * @throws IllegalArgumentException if maxCount < 0.
-     * @throws BufferOverflowException if could not write all read bytes into dst, possibly after some copying.
-     * @throws IOException if thrown by underlying treatments.
+     * @throws BufferOverflowException if dst capacity (Long.MAX_VALUE if FileChannel)
+     *         does not allow for all bytes to copy to be written.
+     * @throws IOException if thrown by underlying treatments, or if src is a
+     *         FileChannel and depletes earlier than indicated by its initial
+     *         size, or if dst is a FileChannel and all read bytes could not be
+     *         written in it.
      */
     public static long readAtAndWriteAll(Object src, long srcPos, Object dst, long maxCount) throws IOException {
         return DEFAULT_INSTANCE.readAtAndWriteAll_(src, srcPos, dst, maxCount);
@@ -606,9 +629,14 @@ public class ByteCopyUtils {
      * @param count Number of bytes to copy.
      * @throws NullPointerException if either src or dst is null.
      * @throws IllegalArgumentException if count < 0.
-     * @throws BufferUnderflowException if could not read the specified number of bytes from src, possibly after some copying.
-     * @throws BufferOverflowException if could not write all read bytes into dst, possibly after some copying.
-     * @throws IOException if thrown by underlying treatments.
+     * @throws BufferUnderflowException if src initial size does not allow to
+     *         read count bytes.
+     * @throws BufferOverflowException if dst capacity (Long.MAX_VALUE if FileChannel)
+     *         does not allow for all bytes to copy to be written.
+     * @throws IOException if thrown by underlying treatments, or if src is a
+     *         FileChannel and depletes earlier than indicated by its initial
+     *         size, or if dst is a FileChannel and all read bytes could not be
+     *         written in it.
      */
     public static void readAllAtAndWriteAll(Object src, long srcPos, Object dst, long count) throws IOException {
         DEFAULT_INSTANCE.readAllAtAndWriteAll_(src, srcPos, dst, count);
@@ -629,7 +657,10 @@ public class ByteCopyUtils {
      * @return The number of bytes copied, possibly 0.
      * @throws NullPointerException if either src or dst is null.
      * @throws IllegalArgumentException if maxCount < 0.
-     * @throws IOException if thrown by underlying treatments.
+     * @throws IOException if thrown by underlying treatments, or if src is a
+     *         FileChannel and depletes earlier than indicated by its initial
+     *         size, or if dst is a FileChannel and all read bytes could not be
+     *         written in it.
      */
     public static long readAtAndWriteAt(Object src, long srcPos, Object dst, long dstPos, long maxCount) throws IOException {
         return DEFAULT_INSTANCE.readAtAndWriteAt_(src, srcPos, dst, dstPos, maxCount);
@@ -650,8 +681,12 @@ public class ByteCopyUtils {
      * @return The number of bytes copied, possibly 0.
      * @throws NullPointerException if either src or dst is null.
      * @throws IllegalArgumentException if maxCount < 0.
-     * @throws BufferOverflowException if could not write all read bytes into dst, possibly after some copying.
-     * @throws IOException if thrown by underlying treatments.
+     * @throws BufferOverflowException if dst capacity (Long.MAX_VALUE if FileChannel)
+     *         does not allow for all bytes to copy to be written.
+     * @throws IOException if thrown by underlying treatments, or if src is a
+     *         FileChannel and depletes earlier than indicated by its initial
+     *         size, or if dst is a FileChannel and all read bytes could not be
+     *         written in it.
      */
     public static long readAtAndWriteAllAt(Object src, long srcPos, Object dst, long dstPos, long maxCount) throws IOException {
         return DEFAULT_INSTANCE.readAtAndWriteAllAt_(src, srcPos, dst, dstPos, maxCount);
@@ -671,9 +706,14 @@ public class ByteCopyUtils {
      * @param count Number of bytes to copy.
      * @throws NullPointerException if either src or dst is null.
      * @throws IllegalArgumentException if count < 0.
-     * @throws BufferUnderflowException if could not read the specified number of bytes from src, possibly after some copying.
-     * @throws BufferOverflowException if could not write all read bytes into dst, possibly after some copying.
-     * @throws IOException if thrown by underlying treatments.
+     * @throws BufferUnderflowException if src initial size does not allow to
+     *         read count bytes.
+     * @throws BufferOverflowException if dst capacity (Long.MAX_VALUE if FileChannel)
+     *         does not allow for all bytes to copy to be written.
+     * @throws IOException if thrown by underlying treatments, or if src is a
+     *         FileChannel and depletes earlier than indicated by its initial
+     *         size, or if dst is a FileChannel and all read bytes could not be
+     *         written in it.
      */
     public static void readAllAtAndWriteAllAt(Object src, long srcPos, Object dst, long dstPos, long count) throws IOException {
         DEFAULT_INSTANCE.readAllAtAndWriteAllAt_(src, srcPos, dst, dstPos, count);
@@ -970,6 +1010,9 @@ public class ByteCopyUtils {
                             dstBB.limit(asInt(neededLimit));
                         }
                     }
+                } else {
+                    // We assume that device has enough capacity,
+                    // and will consider any limitation to be unexpected.
                 }
                 // did/will grow (else throw)
                 toWriteDst = toReadSrcCount;
@@ -989,26 +1032,19 @@ public class ByteCopyUtils {
          * copy
          */
         
-        final long nDone;
         if ((src == dst)
                 && (srcPos == dstPos)) {
             // Virtual copy.
             // Note: if (src == dst), then, if both posInSrc and posInDst
             // are true, we have (srcPos == dstPos), so we end up here.
-            // Can't have to grow (can't copy more than what's left),
-            // so we can assume the copy is done.
-            nDone = n;
+            // Can't have to grow (can't copy more than what's left).
             if (posInSrc || posInDst) {
-                if (src instanceof ByteBuffer) {
-                    ((ByteBuffer)src).position(asInt(srcPos+n));
-                } else {
-                    ((FileChannel)src).position(srcPos+n);
-                }
+                position(src, srcPos+n);
             }
         } else {
             if (src instanceof ByteBuffer) {
                 if (dst instanceof ByteBuffer) {
-                    nDone = this.readXXXAndWriteXXX_BB_BB(
+                    this.readXXXAndWriteXXX_BB_BB(
                             asBB(src),
                             asInt(srcPos),
                             asBB(dst),
@@ -1017,7 +1053,7 @@ public class ByteCopyUtils {
                             posInSrc,
                             posInDst);
                 } else {
-                    nDone = this.readXXXAndWriteXXX_BB_FC(
+                    this.readXXXAndWriteXXX_BB_FC(
                             asBB(src),
                             asInt(srcPos),
                             asFC(dst),
@@ -1028,7 +1064,7 @@ public class ByteCopyUtils {
                 }
             } else {
                 if (dst instanceof ByteBuffer) {
-                    nDone = this.readXXXAndWriteXXX_FC_BB(
+                    this.readXXXAndWriteXXX_FC_BB(
                             asFC(src),
                             srcPos,
                             asBB(dst),
@@ -1037,7 +1073,7 @@ public class ByteCopyUtils {
                             posInSrc,
                             posInDst);
                 } else {
-                    nDone = this.readXXXAndWriteXXX_FC_FC(
+                    this.readXXXAndWriteXXX_FC_FC(
                             asFC(src),
                             srcPos,
                             asFC(dst),
@@ -1048,43 +1084,6 @@ public class ByteCopyUtils {
                 }
             }
         }
-        
-        /*
-         * post treatments
-         */
-        
-        if (nDone != n) {
-            // Can happen for example if writing into a FileChannel,
-            // if device gets full.
-            // Note: if device is full when FileChannel.write(...) gets called,
-            // it has been observed to throw an IOException ("no space left on device"),
-            // instead of just stopping early (and returning 0) as it does
-            // when device gets full after the write already copied some bytes.
-            if(ASSERTIONS)assert(nDone < n);
-            final boolean couldHaveReadMore = (nDone < srcInitialRemFromPos);
-            // Note: if both readAllCount and writeAllRead are true,
-            // an exception is necessarily thrown, as one could expect.
-            if (readAllCount) {
-                // TODO Before copy, we had srcInitialRemFromPos >= count,
-                // else we would have thrown BufferUnderflowException,
-                // and since nDone < n <= count, we necessarily have
-                // nDone < srcInitialRemFromPos, i.e. couldHaveReadMore
-                // is necessarily true, and this code is dead code.
-                if (!couldHaveReadMore) {
-                    throw new BufferUnderflowException();
-                }
-            }
-            if (writeAllRead) {
-                if (couldHaveReadMore) {
-                    // We suppose that there was more to read (even though
-                    // the early stop might be due to src having been
-                    // concurrently truncated), i.e. that the early
-                    // stop is due to dst not allowing more bytes
-                    // to be written.
-                    throw new BufferOverflowException();
-                }
-            }
-        }
 
         return n;
     }
@@ -1092,11 +1091,8 @@ public class ByteCopyUtils {
     /*
      * 
      */
-
-    /**
-     * @return The number of bytes copied, possibly 0.
-     */
-    private int readXXXAndWriteXXX_BB_BB(
+    
+    private void readXXXAndWriteXXX_BB_BB(
             final ByteBuffer src,
             final int srcPos,
             final ByteBuffer dst,
@@ -1107,9 +1103,7 @@ public class ByteCopyUtils {
 
         final boolean sameInstance = (src == dst);
 
-        // If no exception, considering that all was done,
-        // else that nothing was done.
-        int nDone = 0;
+        boolean allCopied = false;
         
         try {
             if (src.hasArray()) {
@@ -1190,8 +1184,9 @@ public class ByteCopyUtils {
                             // ===> We count on all JDKs to handle overlapping for this copy, and on
                             // Oracle not changing direct ByteBuffer's put to align it with its spec.
                             
-                            // TODO Code to complete if we don't count on ByteBuffer.put(ByteBuffer)
-                            // to handle overlapping for direct ByteBuffers.
+                            // TODO Code to complete and use if we don't count on
+                            // ByteBuffer.put(ByteBuffer) to handle overlapping for
+                            // direct ByteBuffers.
                             if (src.isDirect()) {
                                 // We suppose dst direct, so there is a risk of overlapping.
                                 if (false) {
@@ -1221,40 +1216,46 @@ public class ByteCopyUtils {
                 }
             }
             
-            nDone = n;
+            allCopied = true;
         } finally {
+            // Need to set src or dst position as long as no .duplicate() has been done,
+            // even if an exception has been thrown, for it might have been
+            // used as a temporary value.
+            final int nOr0 = (allCopied ? n : 0);
             if (sameInstance) {
                 // If both posInSrc and posInDst are true,
                 // any of the first two cases works,
                 // since then srcPos equals dstPos.
                 if (posInSrc) {
-                    setPosIfNeeded(src, srcPos + nDone);
+                    setPosIfNeeded(src, srcPos + nOr0);
                 } else if (posInDst) {
-                    setPosIfNeeded(src, dstPos + nDone);
+                    setPosIfNeeded(src, dstPos + nOr0);
                 } else {
                     // Did not modify the ByteBuffer (concurrency = .duplicate()).
                 }
             } else {
                 try {
                     if (posInSrc) {
-                        setPosIfNeeded(src, srcPos + nDone);
+                        setPosIfNeeded(src, srcPos + nOr0);
                     } else {
                         // Did not modify src (concurrency = .duplicate()).
                     }
                 } finally {
                     if (posInDst) {
-                        setPosIfNeeded(dst, dstPos + nDone);
+                        setPosIfNeeded(dst, dstPos + nOr0);
                     } else {
                         // Did not modify dst (concurrency = .duplicate()).
                     }
                 }
             }
         }
-
-        return nDone;
     }
 
-    private int readXXXAndWriteXXX_BB_FC(
+    /**
+     * @throws IOException if thrown by underlying treatments, or if could not
+     *         write all "n" bytes into dst.
+     */
+    private void readXXXAndWriteXXX_BB_FC(
             final ByteBuffer src,
             final int srcPos,
             final FileChannel dst,
@@ -1263,7 +1264,7 @@ public class ByteCopyUtils {
             final boolean posInSrc,
             final boolean posInDst) throws IOException {
         
-        int nDone = 0;
+        boolean allCopied = false;
         
         try {
             if (src.isDirect()) {
@@ -1282,7 +1283,7 @@ public class ByteCopyUtils {
                     srcModifiable.limit(srcPos + n);
                     srcModifiable.position(srcPos);
 
-                    nDone = writeByChunks(srcModifiable, dst, dstPos);
+                    writeByChunks(srcModifiable, dst, dstPos);
                 } finally {
                     // In case it is src.
                     setLimIfNeeded(srcModifiable, srcInitialLim);
@@ -1300,6 +1301,7 @@ public class ByteCopyUtils {
                 final int srcInitialLim = srcModifiable.limit();
                 try {
                     final ByteBuffer tmpBB = this.getTmpDirectBB(n);
+                    int nDone = 0;
                     while (nDone < n) {
                         final int nRemaining = (n-nDone);
 
@@ -1316,42 +1318,44 @@ public class ByteCopyUtils {
 
                         // tmp to dst
                         tmpBB.flip();
-                        final int tmpNWritten = writeByChunks(tmpBB, dst, dstPos + nDone);
+                        writeByChunks(tmpBB, dst, dstPos + nDone);
 
-                        nDone += tmpNWritten;
-                        if (tmpNWritten != tmpN) {
-                            // Giving up.
-                            break;
-                        }
+                        nDone += tmpN;
                     }
                 } finally {
                     // In case it is src.
                     setLimIfNeeded(srcModifiable, srcInitialLim);
                 }
             }
+            
+            allCopied = true;
         } finally {
+            final int nOr0 = (allCopied ? n : 0);
             try {
+                // Need to set src position as long as no .duplicate() has been done,
+                // even if an exception has been thrown, for it might have been
+                // used as a temporary value.
                 if (posInSrc) {
-                    setPosIfNeeded(src, srcPos + nDone);
+                    setPosIfNeeded(src, srcPos + nOr0);
                 } else {
                     // Did not modify src (concurrency = .duplicate()).
                 }
             } finally {
-                // Not uselessly setting position,
-                // since it causes an IO.
-                if (posInDst && (nDone != 0)) {
-                    dst.position(dstPos + nDone);
+                // No need to set FileChannel position if not all has been copied,
+                // since its position is never changed during copy, and then we
+                // also take care not to set it, because it causes an IO.
+                if (posInDst && (nOr0 != 0)) {
+                    dst.position(dstPos + nOr0);
                 }
             }
         }
-
-        return nDone;
     }
 
     /**
-     * @return The number of bytes copied, possibly 0.
+     * @throws IOException if thrown by underlying treatments, or if could not
+     *         read all "n" bytes from src.
      */
-    private int readXXXAndWriteXXX_FC_BB(
+    private void readXXXAndWriteXXX_FC_BB(
             final FileChannel src,
             final long srcPos,
             final ByteBuffer dst,
@@ -1360,7 +1364,7 @@ public class ByteCopyUtils {
             final boolean posInSrc,
             final boolean posInDst) throws IOException {
 
-        int nDone = 0;
+        boolean allCopied = false;
         
         try {
             if (dst.isDirect()) {
@@ -1384,7 +1388,9 @@ public class ByteCopyUtils {
                     // Uses a single native copy.
                     final int nReadOrM1_unused = src.read(dstModifiable, srcPos);
                     // We can avoid to rely on read's result.
-                    nDone = n - dstModifiable.remaining();
+                    if (dstModifiable.remaining() != 0) {
+                        throwUnexpectedUnderflow();
+                    }
                 } finally {
                     // In case it is dst.
                     setLimIfNeeded(dstModifiable, dstInitialLim);
@@ -1394,6 +1400,7 @@ public class ByteCopyUtils {
                         && (n >= this.mbbThreshold)
                         && (this.mbbHelper != null)
                         && (this.mbbHelper.canMapAndUnmap(src, MapMode.READ_ONLY))) {
+                    int nDone = 0;
                     while (nDone < n) {
                         final int nRemaining = (n-nDone);
                         final int tmpN = Math.min(nRemaining, this.maxMBBChunkSize);
@@ -1410,6 +1417,7 @@ public class ByteCopyUtils {
                     }
                 } else {
                     final ByteBuffer tmpBB = this.getTmpDirectBB(n);
+                    int nDone = 0;
                     while (nDone < n) {
                         final int nRemaining = (n-nDone);
                         
@@ -1422,43 +1430,48 @@ public class ByteCopyUtils {
                         // src to tmp
                         final int tmpNReadOrM1_unused = src.read(tmpBB, srcPos + nDone);
                         // We can avoid to rely on read's result.
-                        final int tmpNDone = tmpN - tmpBB.remaining();
+                        if (tmpBB.remaining() != 0) {
+                            throwUnexpectedUnderflow();
+                        }
                         
                         // tmp to dst
                         tmpBB.flip();
-                        tmpBB.get(dst.array(), dst.arrayOffset()+dstPos + nDone, tmpNDone);
+                        tmpBB.get(dst.array(), dst.arrayOffset()+dstPos + nDone, tmpN);
                         
-                        nDone += tmpNDone;
-                        if (tmpNDone != tmpN) {
-                            // Giving up.
-                            break;
-                        }
+                        nDone += tmpN;
                     }
                 }
             }
+            
+            allCopied = true;
         } finally {
+            final int nOr0 = (allCopied ? n : 0);
             try {
-                // Not uselessly setting position,
-                // since it causes an IO.
-                if (posInSrc && (nDone != 0)) {
-                    src.position(srcPos + nDone);
+                // No need to set FileChannel position if not all has been copied,
+                // since its position is never changed during copy, and then we
+                // also take care not to set it, because it causes an IO.
+                if (posInSrc && (nOr0 != 0)) {
+                    src.position(srcPos + nOr0);
                 }
             } finally {
+                // Need to set dst position as long as no .duplicate() has been done,
+                // even if an exception has been thrown, for it might have been
+                // used as a temporary value.
                 if (posInDst) {
-                    setPosIfNeeded(dst, dstPos + nDone);
+                    setPosIfNeeded(dst, dstPos + nOr0);
                 } else {
                     // Did not modify dst (concurrency = .duplicate()).
                 }
             }
         }
-        
-        return nDone;
     }
     
     /**
-     * @return The number of bytes copied, possibly 0.
+     * @throws IOException if thrown by underlying treatments, or if could not
+     *         read all "n" bytes from src, or if could not write all read bytes
+     *         into dst.
      */
-    private long readXXXAndWriteXXX_FC_FC(
+    private void readXXXAndWriteXXX_FC_FC(
             final FileChannel src,
             final long srcPos,
             final FileChannel dst,
@@ -1469,12 +1482,14 @@ public class ByteCopyUtils {
 
         // Taking care of copy direction, in case src and dst
         // correspond to a same file.
-        // Going backward can decrease performances if files
-        // are different, since it might first grow dst file
-        // to its target size, and then fill up lower bytes.
-        final boolean copyBackward = (srcPos < dstPos);
+        // We also only go backward if copy ranges actually
+        // overlap, because going backward can decrease
+        // performances if files are different, since it might
+        // first grow dst file to its target size, and then fill
+        // up lower bytes.
+        final boolean copyBackward = (srcPos < dstPos) && (srcPos + n > dstPos);
 
-        long nDone = 0;
+        boolean allCopied = false;
         
         try {
             if (ALLOW_MBB
@@ -1483,24 +1498,22 @@ public class ByteCopyUtils {
                             || (copyBackward && ALLOW_MBB_FOR_BACKWARD_FC_FC_COPIES))
                     && (this.mbbHelper != null)
                     && (this.mbbHelper.canMapAndUnmap(src, MapMode.READ_ONLY))) {
+                long nDone = 0;
                 while (nDone < n) {
                     final long nRemaining = (n-nDone);
                     final int tmpN = minP(nRemaining, this.maxMBBChunkSize);
                     final long tmpOffset = (copyBackward ? (nRemaining-tmpN) : nDone);
                     final ByteBuffer srcMBB = this.mbbHelper.map(src, MapMode.READ_ONLY, srcPos + tmpOffset, tmpN);
                     try {
-                        final int tmpNWritten = writeByChunks(srcMBB, dst, dstPos + tmpOffset);
-                        nDone += tmpNWritten;
-                        if (tmpNWritten != tmpN) {
-                            // Giving up.
-                            break;
-                        }
+                        writeByChunks(srcMBB, dst, dstPos + tmpOffset);
+                        nDone += tmpN;
                     } finally {
                         this.mbbHelper.unmap(src, srcMBB);
                     }
                 }
             } else {
                 final ByteBuffer tmpBB = this.getTmpDirectBB(n);
+                long nDone = 0;
                 while (nDone < n) {
                     final long nRemaining = (n-nDone);
 
@@ -1515,36 +1528,35 @@ public class ByteCopyUtils {
                     // src to tmp
                     final int tmpNReadOrM1_unused = src.read(tmpBB, srcPos + tmpOffset);
                     // We can avoid to rely on read's result.
-                    final int tmpNRead = tmpN - tmpBB.remaining();
+                    if (tmpBB.remaining() != 0) {
+                        throwUnexpectedUnderflow();
+                    }
 
                     // tmp to dst
                     tmpBB.flip();
-                    final int tmpNWritten = writeByChunks(tmpBB, dst, dstPos + tmpOffset);
-
-                    nDone += tmpNWritten;
-                    if (tmpNWritten != tmpNRead) {
-                        // Giving up.
-                        break;
-                    }
+                    writeByChunks(tmpBB, dst, dstPos + tmpOffset);
+                    nDone += tmpN;
                 }
             }
+            
+            allCopied = true;
         } finally {
-            // Not uselessly setting position,
-            // since it causes an IO.
-            if (nDone != 0) {
+            final long nOr0 = (allCopied ? n : 0);
+            // No need to set FileChannels position if not all has been copied,
+            // since their position is never changed during copy, and then we
+            // also take care not to set it, because it causes an IO.
+            if (nOr0 != 0) {
                 try {
                     if (posInSrc) {
-                        src.position(srcPos + nDone);
+                        src.position(srcPos + nOr0);
                     }
                 } finally {
                     if (posInDst) {
-                        dst.position(dstPos + nDone);
+                        dst.position(dstPos + nOr0);
                     }
                 }
             }
         }
-
-        return nDone;
     }
     
     /*
@@ -1554,39 +1566,43 @@ public class ByteCopyUtils {
     /**
      * @param srcDirModBB Must be direct and modifiable (position and limit)
      *        (i.e. not concurrently used).
-     * @return The number of bytes copied, possibly 0.
+     * @throws IOException if thrown by underlying treatments, or if could not
+     *         write all ByteBuffer's content into the specified FileChannel.
      */
-    private int writeByChunks(
+    private void writeByChunks(
             final ByteBuffer srcDirModBB,
             final FileChannel dst,
             final long dstPos) throws IOException {
         if(ASSERTIONS)assert(srcDirModBB.isDirect());
         
-        if (false) {
-            // If not by chunks.
-            // Uses a single native copy.
-            return dst.write(srcDirModBB, dstPos);
-        }
-
-        int nDone = 0;
-        final int srcInitialPos = srcDirModBB.position();
         final int n = srcDirModBB.remaining();
-        while (nDone < n) {
-            final int nRemaining = (n-nDone);
+        
+        if (WRITE_BY_CHUNK) {
+            final int srcInitialPos = srcDirModBB.position();
+            int nDone = 0;
+            while (nDone < n) {
+                final int nRemaining = (n-nDone);
 
-            final int tmpN = Math.min(nRemaining, this.maxWriteChunkSize);
+                final int tmpN = Math.min(nRemaining, this.maxWriteChunkSize);
 
-            // src chunk to dst
-            srcDirModBB.limit(srcInitialPos + nDone + tmpN);
-            srcDirModBB.position(srcInitialPos + nDone);
-            final int tmpNWritten = dst.write(srcDirModBB, dstPos + nDone);
-            nDone += tmpNWritten;
-            if (tmpNWritten != tmpN) {
-                // Giving up.
-                break;
+                // src chunk to dst
+                srcDirModBB.limit(srcInitialPos + nDone + tmpN);
+                srcDirModBB.position(srcInitialPos + nDone);
+                final int tmpNWritten_unused = dst.write(srcDirModBB, dstPos + nDone);
+                // For homogeneity with reads, relying on ByteBuffer's remaining.
+                final int tmpNWritten = (tmpN - srcDirModBB.remaining());
+                if (tmpNWritten != tmpN) {
+                    throwUnexpectedOverflow();
+                }
+                nDone += tmpN;
+            }
+        } else {
+            // Uses a single native copy.
+            int nWritten = dst.write(srcDirModBB, dstPos);
+            if (nWritten != n) {
+                throwUnexpectedOverflow();
             }
         }
-        return nDone;
     }
     
     /*
@@ -1604,6 +1620,14 @@ public class ByteCopyUtils {
             throw new IllegalArgumentException();
         }
         return true;
+    }
+    
+    private static void throwUnexpectedUnderflow() throws IOException {
+        throw new IOException("Unexpected underflow");
+    }
+
+    private static void throwUnexpectedOverflow() throws IOException {
+        throw new IOException("Unexpected overflow");
     }
 
     /*
@@ -1668,19 +1692,27 @@ public class ByteCopyUtils {
         return (FileChannel)ref;
     }
     
-    private static long position(Object ref) throws IOException {
-        if (ref instanceof ByteBuffer) {
-            return ((ByteBuffer)ref).position();
+    private static long position(Object container) throws IOException {
+        if (container instanceof ByteBuffer) {
+            return ((ByteBuffer)container).position();
         } else {
-            return ((FileChannel)ref).position();
+            return ((FileChannel)container).position();
         }
     }
 
-    private static long size(Object ref) throws IOException {
-        if (ref instanceof ByteBuffer) {
-            return ((ByteBuffer)ref).limit();
+    private static void position(Object container, long position) throws IOException {
+        if (container instanceof ByteBuffer) {
+            ((ByteBuffer)container).position(asInt(position));
         } else {
-            return ((FileChannel)ref).size();
+            ((FileChannel)container).position(position);
+        }
+    }
+
+    private static long size(Object container) throws IOException {
+        if (container instanceof ByteBuffer) {
+            return ((ByteBuffer)container).limit();
+        } else {
+            return ((FileChannel)container).size();
         }
     }
 

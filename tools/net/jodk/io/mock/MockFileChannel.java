@@ -54,14 +54,6 @@ public class MockFileChannel extends FileChannel {
      */
     
     /*
-     * In InterfaceMockBuffer, could have bulk get/put methods using ByteBuffer
-     * arguments, which would avoid some loops in this class, but that would
-     * make InterfaceMockBuffer implementations heavier and more error-prone,
-     * and since mocks are designed to be in-memory, looping doesn't entail the
-     * huge cost of many IO operations.
-     */
-    
-    /*
      * Reads and writes don't throw AsynchronousCloseException
      * or ClosedByInterruptException, which is acceptable since
      * they are not designed to be blocking.
@@ -344,12 +336,10 @@ public class MockFileChannel extends FileChannel {
         if (size < 0) {
             throw new IllegalArgumentException();
         }
-        // TODO Could return this if >=,
-        // but we want to be as close to
+        // TODO Could return this if >=, but we want to be as close to
         // FileChannelImpl as possible.
-        // This should also be traced with a JDK bug, see nio-dev mailing list, message
-        // from Alan Bateman, 2012/10/02, subject "Re: Tr : FileChannel doc":
-        // "I think we have to fix specific one as all checks should be done at the start, I'll create a bug for that.".
+        // Also, this early return is done before writability check
+        // (bug 8000330).
         // Note: there is also a bug in that the spec says that position is
         // always reworked if > specified size, but that early test prevents it.
         final long oldSize = this.buffer.limit();
@@ -756,9 +746,9 @@ public class MockFileChannel extends FileChannel {
             }
             final long toTransfer = minPos(toTransferSrcCount, dstRem);
             final long srcToDstPosShift = dstPos - srcPos;
-            // TODO all this can be simplified now, now that we have
-            // bulk put ? (if this or instanceof MockFileChannel...)
-            // TODO plus le comment bla bla sur doit pas sharer...
+            // TODO Could be made faster if InterfaceMockBuffer
+            // had a bulk get operation, and could be extended
+            // to all (dst instanceof MockFileChannel) cases.
             if (srcToDstPosShift > 0) {
                 /*
                  * copying from last to first

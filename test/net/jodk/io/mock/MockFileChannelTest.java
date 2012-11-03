@@ -367,7 +367,7 @@ public class MockFileChannelTest extends TestCase {
                 if (channel.getAppendMode()) {
                     expectedPos = size(channel);
                 } else {
-                    if (false) { // TODO not the case due to truncate(long) bug, see impl
+                    if (false) { // TODO not the case due to truncate(long) bug (id 8000330)
                         // position downed if > size
                         expectedPos = Math.min(size, oldPos);
                     } else {

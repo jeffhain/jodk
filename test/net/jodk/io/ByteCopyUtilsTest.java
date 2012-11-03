@@ -22,6 +22,7 @@ import java.nio.BufferUnderflowException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.ReadOnlyBufferException;
+import java.nio.channels.FileChannel;
 import java.nio.channels.NonReadableChannelException;
 import java.nio.channels.NonWritableChannelException;
 import java.util.ArrayList;
@@ -38,6 +39,7 @@ import net.jodk.io.mock.ByteBufferMockBuffer;
 import net.jodk.io.mock.InterfaceMockBuffer;
 import net.jodk.io.mock.MockFileChannel;
 import net.jodk.io.mock.VirtualMockBuffer;
+import net.jodk.lang.IntWrapper;
 import net.jodk.lang.LangUtils;
 import net.jodk.lang.NumbersUtils;
 import net.jodk.lang.Unchecked;
@@ -124,13 +126,11 @@ public class ByteCopyUtilsTest extends TestCase {
      * huge numbers of bytes.
      */
 
-    private static final int DEFAULT_TEST_MAX_WRITE_CHUNK_SIZE = 1;
-    private static final int DEFAULT_TEST_MAX_TMP_CHUNK_SIZE = 1;
+    private static final int DEFAULT_TEST_MAX_CHUNK_SIZE = 1;
     /**
      * Always using MBBs if a helper that can handle, else never using MBBs.
      */
     private static final int DEFAULT_TEST_MBB_THRESHOLD = 0;
-    private static final int DEFAULT_TEST_MAX_MBB_CHUNK_SIZE = 1;
 
     private static final int MAX_IO_CHUNK_SIZE_FOR_CHECK = 8 * 1024;
 
@@ -456,20 +456,65 @@ public class ByteCopyUtilsTest extends TestCase {
             }
         }
     }
+    
+    /*
+     * 
+     */
 
+    /**
+     * Reads/writes less on countdown'th call.
+     */
+    private static class MyShortReadWriteMFC extends MockFileChannel {
+        final IntWrapper shortReadCountdown;
+        final IntWrapper shortWriteCountdown;
+        public MyShortReadWriteMFC(
+                int capacity,
+                IntWrapper shortReadCountdown,
+                IntWrapper shortWriteCountdown) {
+            super(
+                    new ByteBufferMockBuffer(capacity),
+                    true, // readable
+                    true, // writable
+                    false); // appendMode
+            this.shortReadCountdown = shortReadCountdown;
+            this.shortWriteCountdown = shortWriteCountdown;
+        }
+        @Override
+        public int read(ByteBuffer dst, long srcPos) throws IOException {
+            if (--this.shortReadCountdown.value == 0) {
+                final int ret = super.read(dst, srcPos);
+                // Did read some but not all.
+                dst.position(dst.position()-1);
+                // Not used by our code.
+                return ret;
+            } else {
+                return super.read(dst, srcPos);
+            }
+        }
+        @Override
+        public int write(ByteBuffer src, long dstPos) throws IOException {
+            if (--this.shortWriteCountdown.value == 0) {
+                final int ret = super.write(src, dstPos);
+                // Did write some but not all.
+                src.position(src.position()-1);
+                // Not used by our code.
+                return ret;
+            } else {
+                return super.write(src, dstPos);
+            }
+        }
+    }
+    
     //--------------------------------------------------------------------------
     // MEMBERS
     //--------------------------------------------------------------------------
 
     private static final List<Boolean> FALSE_TRUE = Collections.unmodifiableList(Arrays.asList(new Boolean[]{false,true}));
 
-    private static final ByteCopyUtils A_THREAD_SAFE_BCU = new ByteCopyUtils(
+    private static final ByteCopyUtils A_THREAD_SAFE_BCU = newBCU(
             null, // MBB helper
             true, // threadSafe
-            DEFAULT_TEST_MAX_WRITE_CHUNK_SIZE,
-            DEFAULT_TEST_MAX_TMP_CHUNK_SIZE,
-            DEFAULT_TEST_MBB_THRESHOLD,
-            DEFAULT_TEST_MAX_MBB_CHUNK_SIZE);
+            DEFAULT_TEST_MAX_CHUNK_SIZE);
 
     //--------------------------------------------------------------------------
     // PUBLIC METHODS
@@ -513,56 +558,196 @@ public class ByteCopyUtilsTest extends TestCase {
      * 
      */
     
-    /**
-     * Tests post-copy treatments, that are used if dst
-     * gets full early.
-     */
-    public void test_readXXXAndWriteXXX_postTreatments() {
+    public void test_readXXXAndWriteXXX_BB_FC_unexpectedOverflow() {
         
-        /*
-         * Copying a direct ByteBuffer into a FileChannel.
-         * src content will be written byte-by-byte into
-         * dst, and we return 0 after a few writes,
-         * as could happen if device got full.
-         */
-        
-        final ByteCopyUtils utils = new ByteCopyUtils(
-                null, // mbbHelper
-                false, // threadSafe
-                DEFAULT_TEST_MAX_WRITE_CHUNK_SIZE,
-                DEFAULT_TEST_MAX_TMP_CHUNK_SIZE,
-                DEFAULT_TEST_MBB_THRESHOLD,
-                DEFAULT_TEST_MAX_MBB_CHUNK_SIZE);
+        final int INST_POS = -1;
         
         final int count = 10;
+        final int capacity = 2*count;
         
-        final ByteBuffer src = ByteBuffer.allocateDirect(count);
+        // 1 would make shortage return 0,
+        // which could be a special case.
+        final int maxChunkSize = 2;
         
-        final boolean readable = true;
-        final boolean writable = true;
-        final boolean appendMode = false;
-        final MockFileChannel dst = new MockFileChannel(
-                new ByteBufferMockBuffer(10),
-                readable,
-                writable,
-                appendMode) {
-            int counter = 0;
-            @Override
-            public int write(ByteBuffer src, long dstPos) throws IOException {
-                if (++this.counter == count/2) {
-                    return 0;
+        final ByteCopyUtils utils = newBCU(
+                null, // mbbHelper
+                false, // threadSafe
+                maxChunkSize);
+        
+        final IntWrapper shortWriteCountdown = new IntWrapper();
+        final MockFileChannel dst = new MyShortReadWriteMFC(
+                capacity,
+                null, // shortReadCountdown
+                shortWriteCountdown);
+        
+        /*
+         * 
+         */
+        
+        for (ByteBuffer src : new ByteBuffer[]{ByteBuffer.allocateDirect(capacity),ByteBuffer.allocate(capacity)}) {
+            
+            final int srcInitialPos = 1;
+            final int dstInitialPos = 2;
+            position(src, srcInitialPos);
+            position(dst, dstInitialPos);
+            
+            for (boolean posInSrc : FALSE_TRUE) {
+                for (boolean posInDst : FALSE_TRUE) {
+                    for (boolean readAllCount : FALSE_TRUE) {
+                        for (boolean writeAllRead : FALSE_TRUE) {
+                            try {
+                                // write by chunks
+                                shortWriteCountdown.value = 2;
+                                call_readXXXAndWriteXXX(
+                                        utils,
+                                        src,
+                                        dst,
+                                        (posInSrc ? INST_POS : 0),
+                                        (posInDst ? INST_POS : 0),
+                                        count,
+                                        readAllCount,
+                                        writeAllRead);
+                                assertTrue(false);
+                            } catch (IOException e) {
+                                assertEquals("Unexpected overflow", e.getMessage());
+                            }
+                            // Position not changed.
+                            assertEquals(srcInitialPos, position(src));
+                            assertEquals(dstInitialPos, position(dst));
+                        }
+                    }
                 }
-                return super.write(src, dstPos);
             }
-        };
+        }
+    }
+
+    public void test_readXXXAndWriteXXX_FC_BB_unexpectedUnderflow() {
         
-        try {
-            utils.readAtAndWriteAllAt_(src, 0, dst, 0, count);
-            assertTrue(false);
-        } catch (BufferOverflowException e) {
-            // ok
-        } catch (IOException e) {
-            assertTrue(false);
+        final int INST_POS = -1;
+        
+        final int count = 10;
+        final int capacity = 2*count;
+        
+        final int maxChunkSize = 2;
+        
+        final ByteCopyUtils utils = newBCU(
+                null, // mbbHelper
+                false, // threadSafe
+                maxChunkSize);
+        
+        final IntWrapper shortReadCountdown = new IntWrapper();
+        final MockFileChannel src = new MyShortReadWriteMFC(
+                capacity,
+                shortReadCountdown,
+                null); // shortWriteCountdown
+        
+        /*
+         * 
+         */
+        
+        for (ByteBuffer dst : new ByteBuffer[]{ByteBuffer.allocateDirect(capacity),ByteBuffer.allocate(capacity)}) {
+            
+            final int srcInitialPos = 1;
+            final int dstInitialPos = 2;
+            position(src, srcInitialPos);
+            position(dst, dstInitialPos);
+            
+            for (boolean posInSrc : FALSE_TRUE) {
+                for (boolean posInDst : FALSE_TRUE) {
+                    for (boolean readAllCount : FALSE_TRUE) {
+                        for (boolean writeAllRead : FALSE_TRUE) {
+                            try {
+                                // Only one read if direct, so we need it to be short.
+                                shortReadCountdown.value = (dst.isDirect() ? 1 : 2);
+                                call_readXXXAndWriteXXX(
+                                        utils,
+                                        src,
+                                        dst,
+                                        (posInSrc ? INST_POS : 0),
+                                        (posInDst ? INST_POS : 0),
+                                        count,
+                                        readAllCount,
+                                        writeAllRead);
+                                assertTrue(false);
+                            } catch (IOException e) {
+                                assertEquals("Unexpected underflow", e.getMessage());
+                            }
+                            // Position not changed.
+                            assertEquals(srcInitialPos, position(src));
+                            assertEquals(dstInitialPos, position(dst));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    public void test_readXXXAndWriteXXX_FC_FC_unexpectedUnderflowOverflow() {
+        
+        final int INST_POS = -1;
+        
+        final int count = 10;
+        final int capacity = 2*count;
+        
+        final int maxChunkSize = 2;
+        
+        final ByteCopyUtils utils = newBCU(
+                null, // mbbHelper
+                false, // threadSafe
+                maxChunkSize);
+        
+        final IntWrapper shortReadCountdown = new IntWrapper();
+        final IntWrapper shortWriteCountdown = new IntWrapper();
+        final MockFileChannel src = new MyShortReadWriteMFC(
+                capacity,
+                shortReadCountdown,
+                shortWriteCountdown);
+        final MockFileChannel dst = new MyShortReadWriteMFC(
+                capacity,
+                shortReadCountdown,
+                shortWriteCountdown);
+        
+        /*
+         * 
+         */
+
+        final int srcInitialPos = 1;
+        final int dstInitialPos = 2;
+        position(src, srcInitialPos);
+        position(dst, dstInitialPos);
+
+        for (boolean posInSrc : FALSE_TRUE) {
+            for (boolean posInDst : FALSE_TRUE) {
+                for (boolean readAllCount : FALSE_TRUE) {
+                    for (boolean writeAllRead : FALSE_TRUE) {
+                        for (boolean shortReadElseWrite : FALSE_TRUE) {
+                            try {
+                                shortReadCountdown.value = (shortReadElseWrite ? 2 : Integer.MAX_VALUE);
+                                shortWriteCountdown.value = (shortReadElseWrite ? Integer.MAX_VALUE : 2);
+                                call_readXXXAndWriteXXX(
+                                        utils,
+                                        src,
+                                        dst,
+                                        (posInSrc ? INST_POS : 0),
+                                        (posInDst ? INST_POS : 0),
+                                        count,
+                                        readAllCount,
+                                        writeAllRead);
+                                assertTrue(false);
+                            } catch (IOException e) {
+                                if (shortReadElseWrite) {
+                                    assertEquals("Unexpected underflow", e.getMessage());
+                                } else {
+                                    assertEquals("Unexpected overflow", e.getMessage());
+                                }
+                            }
+                            // Position not changed.
+                            assertEquals(srcInitialPos, position(src));
+                            assertEquals(dstInitialPos, position(dst));
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -1125,12 +1310,9 @@ public class ByteCopyUtilsTest extends TestCase {
                 }
                 
                 System.gc(); // making room
-                final ByteCopyUtils utils = new ByteCopyUtils(
+                final ByteCopyUtils utils = newBCU(
                         DefaultMBBHelper.INSTANCE,
                         false, // threadSafe
-                        maxChunkSize,
-                        maxChunkSize,
-                        DEFAULT_TEST_MBB_THRESHOLD,
                         maxChunkSize);
                 if (DEBUG) {
                     System.out.println("utils = "+utils);
@@ -1977,6 +2159,32 @@ public class ByteCopyUtilsTest extends TestCase {
             final ByteCopyUtils utils,
             final Object src,
             final Object dst,
+            final long srcPosElseNeg,
+            final long dstPosElseNeg,
+            final long count,
+            final boolean readAllCount,
+            final boolean writeAllRead) throws IOException {
+        final boolean posInSrc = (srcPosElseNeg < 0);
+        final boolean posInDst = (dstPosElseNeg < 0);
+        final long srcPos = (posInSrc ? position(src) : srcPosElseNeg);
+        final long dstPos = (posInDst ? position(dst) : dstPosElseNeg);
+        return call_readXXXAndWriteXXX(
+                utils,
+                src,
+                dst,
+                srcPos,
+                dstPos,
+                posInSrc,
+                posInDst,
+                count,
+                readAllCount,
+                writeAllRead);
+    }
+
+    private static long call_readXXXAndWriteXXX(
+            final ByteCopyUtils utils,
+            final Object src,
+            final Object dst,
             final long srcPos,
             final long dstPos,
             final boolean posInSrc,
@@ -2081,6 +2289,26 @@ public class ByteCopyUtilsTest extends TestCase {
                     }
                 }
             }
+        }
+    }
+    
+    /*
+     * 
+     */
+
+    private static long position(Object container) {
+        if (container instanceof ByteBuffer) {
+            return ((ByteBuffer)container).position();
+        } else {
+            return UncheckedIO.position((FileChannel)container);
+        }
+    }
+
+    private static void position(Object container, long position) {
+        if (container instanceof ByteBuffer) {
+            ((ByteBuffer)container).position(NumbersUtils.asInt(position));
+        } else {
+            UncheckedIO.position((FileChannel)container, position);
         }
     }
 
@@ -2288,6 +2516,19 @@ public class ByteCopyUtilsTest extends TestCase {
     /*
      * 
      */
+    
+    private static ByteCopyUtils newBCU(
+            InterfaceMBBHelper mbbHelper,
+            boolean threadSafe,
+            int maxChunkSize) {
+        return new ByteCopyUtils(
+                mbbHelper,
+                threadSafe,
+                maxChunkSize,
+                maxChunkSize,
+                DEFAULT_TEST_MBB_THRESHOLD,
+                maxChunkSize);
+    }
 
     /**
      * @param staticCalls If true, result contains a single null element.
@@ -2307,13 +2548,10 @@ public class ByteCopyUtilsTest extends TestCase {
         ArrayList<ByteCopyUtils> result = new ArrayList<ByteCopyUtils>();
         for (InterfaceMBBHelper mbbHelper : new InterfaceMBBHelper[]{null,MockMBBHelper.INSTANCE}) {
             result.add(
-                    new ByteCopyUtils(
+                    newBCU(
                             mbbHelper,
                             threadSafe,
-                            DEFAULT_TEST_MAX_WRITE_CHUNK_SIZE,
-                            DEFAULT_TEST_MAX_TMP_CHUNK_SIZE,
-                            DEFAULT_TEST_MBB_THRESHOLD,
-                            DEFAULT_TEST_MAX_MBB_CHUNK_SIZE));
+                            DEFAULT_TEST_MAX_CHUNK_SIZE));
         }
         return result;
     }
@@ -2343,13 +2581,10 @@ public class ByteCopyUtilsTest extends TestCase {
         // No need for helper since no MBB is involved for BB to BB copies.
         // Chunk size has no effect either.
         result.add(
-                new ByteCopyUtils(
+                newBCU(
                         null, // mbbHelper
                         true, // threadSafe
-                        DEFAULT_TEST_MAX_WRITE_CHUNK_SIZE,
-                        DEFAULT_TEST_MAX_TMP_CHUNK_SIZE,
-                        DEFAULT_TEST_MBB_THRESHOLD,
-                        DEFAULT_TEST_MAX_MBB_CHUNK_SIZE));
+                        DEFAULT_TEST_MAX_CHUNK_SIZE));
         return result;
     }
 
@@ -2388,12 +2623,9 @@ public class ByteCopyUtilsTest extends TestCase {
         final InterfaceMBBHelper usedHelper = (io ? DefaultMBBHelper.INSTANCE : MockMBBHelper.INSTANCE);
         for (InterfaceMBBHelper mbbHelper : new InterfaceMBBHelper[]{null,usedHelper}) {
             result.add(
-                    new ByteCopyUtils(
+                    newBCU(
                             mbbHelper,
                             true, // threadSafe
-                            chunkSize,
-                            chunkSize,
-                            DEFAULT_TEST_MBB_THRESHOLD,
                             chunkSize));
         }
         return result;
@@ -2407,12 +2639,9 @@ public class ByteCopyUtilsTest extends TestCase {
         result.add(null);
         for (InterfaceMBBHelper mbbHelper : new InterfaceMBBHelper[]{null,DefaultMBBHelper.INSTANCE}) {
             result.add(
-                    new ByteCopyUtils(
+                    newBCU(
                             mbbHelper,
                             false, // threadSafe
-                            maxChunkSize,
-                            maxChunkSize,
-                            DEFAULT_TEST_MBB_THRESHOLD,
                             maxChunkSize));
         }
         return result;
