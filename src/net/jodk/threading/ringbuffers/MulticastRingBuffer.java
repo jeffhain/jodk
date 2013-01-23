@@ -60,28 +60,15 @@ public class MulticastRingBuffer extends AbstractRingBuffer {
      * publications actually published by publishers that fill
      * the lowest publication hole), but it would increase the overhead
      * on publishers side (systematic CAS, and lazySet not possible),
-     * divide usual max throughput by 1.5 or 2, and simply using
-     * a single head or tail worker can make up for it.
+     * and simply using a single head or tail worker can make up for it.
      */
     
     //--------------------------------------------------------------------------
     // CONFIGURATION
     //--------------------------------------------------------------------------
 
-    private static final boolean ASSERTIONS = false;
+    private static final boolean AZZERTIONS = false;
     
-    //--------------------------------------------------------------------------
-    // CONFIGURATION
-    //--------------------------------------------------------------------------
-    
-    /**
-     * True or false, depending on balance between CAS cost
-     * and re-catch-up cost. Seems about equivalent.
-     */
-    private static final boolean MPSC_MONOTONIC_WITH_CAS = false;
-
-    private static final boolean MPSC_CAS_ONLY_IF_GOOD_CHANCE = true;
-
     /**
      * If true, throughput should be a bit (or a lot, if false sharing)
      * lower, but reactivity to state change is better.
@@ -123,8 +110,6 @@ public class MulticastRingBuffer extends AbstractRingBuffer {
      */
     private static class MyWriteWaitStopBC implements InterfaceBooleanCondition {
         final MulticastRingBuffer ringBuffer;
-        final boolean singlePublisher;
-        final PostPaddedAtomicLong sharedMaxPubSeqContiguous;
         final PostPaddedAtomicInteger state;
         int localState_WWSBC; // in
         long sequence_WWSBC; // in
@@ -135,51 +120,39 @@ public class MulticastRingBuffer extends AbstractRingBuffer {
         long localMPSC_WWSBC = INITIAL_SEQUENCE-1;
         public MyWriteWaitStopBC(MyMulticastWorker worker) {
             this.ringBuffer = worker.ringBuffer;
-            this.singlePublisher = worker.ringBuffer.singlePublisher;
-            this.sharedMaxPubSeqContiguous = worker.ringBuffer.sharedMaxPubSeqContiguous;
             this.state = worker.state;
         }
         /**
          * If returns true because of state,
-         * highestAvailableSequence_WWSBC is undefined.
+         * localMPSC_WWSBC is undefined.
          */
         @Override
         public boolean isTrue() {
             return isTrue_static(this);
         }
         public static boolean isBehindPublishers(MyWriteWaitStopBC bc, long sequence) {
-            if (bc.singlePublisher) {
-                return (sequence <= bc.localMPSC_WWSBC)
-                        || (sequence <= (bc.localMPSC_WWSBC = bc.sharedMaxPubSeqContiguous.get()));
-            } else {
-                return isBehindMultiPublishers(bc, sequence);
-            }
+            return (sequence <= bc.localMPSC_WWSBC)
+                    || (sequence <= (bc.localMPSC_WWSBC = computeMaxPubSeqContiguous(bc)));
         }
-        private static boolean isBehindMultiPublishers(MyWriteWaitStopBC bc, long sequence) {
-            // Checking local first helps, when used after ahead workers
-            // progression check, when we check for idleness, but it doesn't
-            // help if no ahead worker, since we usually read up to
-            // max published sequence (unless lower end sequence).
-            if (sequence <= bc.localMPSC_WWSBC) {
-                return true;
-            }
-            if (MPSC_MONOTONIC_WITH_CAS) {
-                if (sequence <= (bc.localMPSC_WWSBC = bc.sharedMaxPubSeqContiguous.get())) {
-                    return true;
-                }
+        private static long computeMaxPubSeqContiguous(MyWriteWaitStopBC bc) {
+            final MulticastRingBuffer rb = bc.ringBuffer;
+            if (rb.singlePublisher) {
+                return rb.singlePubMaxPubSeq.get();
             } else {
-                // Volatile value can go backward:
-                // taking care that our local value doesn't.
-                long recentMPSC = bc.sharedMaxPubSeqContiguous.get();
-                if (sequence <= recentMPSC) {
-                    bc.localMPSC_WWSBC = recentMPSC;
-                    return true;
+                long tmpSequence = bc.localMPSC_WWSBC+1;
+                while (true) {
+                    final int index = ((int)tmpSequence & rb.indexMask);
+                    final PostPaddedAtomicLong entry = rb.entries[index];
+                    final long sequence = entry.get();
+                    if (sequence < tmpSequence) {
+                        // Not published (negative value), or published at a previous round.
+                        return tmpSequence-1;
+                    }
+                    // Can't be ahead.
+                    if(AZZERTIONS)LangUtils.azzert(sequence == tmpSequence);
+                    ++tmpSequence;
                 }
             }
-            if (sequence <= (bc.localMPSC_WWSBC = bc.ringBuffer.updateAndGetMaxPubSeqContiguous(bc.localMPSC_WWSBC))) {
-                return true;
-            }
-            return false;
         }
         private static boolean isTrue_static(MyWriteWaitStopBC bc) {
             // Checking state before, so that when wait stops, user
@@ -499,11 +472,21 @@ public class MulticastRingBuffer extends AbstractRingBuffer {
                 return false;
             }
             MainLoop : while (true) {
-                if(ASSERTIONS)assert(attemptSequence <= endSequence);
+                if(AZZERTIONS)LangUtils.azzert(attemptSequence <= endSequence);
                 // To set max passed sequence (volatile) only if actually changed.
                 final long attemptSequenceBeforeTry = attemptSequence;
                 try {
-                    final long batchEndSequence;
+                    /*
+                     * If ahead workers, first waiting for their max visibly processed sequence
+                     * to be >= attempt sequence, and then waiting for this sequence to be visibly
+                     * published (which should "almost always" cause no actual wait).
+                     * If we first waited for max visibly published sequence to be >= attempt sequence,
+                     * and then for this sequence to be visibly already processed by ahead workers,
+                     * we should have bigger batches but higher latency.
+                     */
+                    
+                    final long sequenceToWaitForPublication;
+                    final long maxSequenceAllowedToRead;
                     if (hasAheadWorkers) {
                         /*
                          * Waiting for attempt sequence to be read by ahead workers.
@@ -519,28 +502,36 @@ public class MulticastRingBuffer extends AbstractRingBuffer {
                                 break;
                             }
                         }
-                        batchEndSequence = Math.min(readWaitStopBC.lastMinWorkerMPS_SWC, endSequence);
+                        sequenceToWaitForPublication = Math.min(readWaitStopBC.lastMinWorkerMPS_SWC, endSequence);
+                        maxSequenceAllowedToRead = sequenceToWaitForPublication;
                     } else {
-                        if (!MyWriteWaitStopBC.isBehindPublishers(writeWaitStopBC, attemptSequence)) {
-                            // No need to call onBatchEnd if needed before return,
-                            // it's taken care of in runWorkerImplAfterStateAndMPSUpdates(...):
-                            // calling it if needed ONLY before actual (or possible) waits,
-                            // or in finally clause in runWorkerImplAfterStateAndMPSUpdates(...).
-                            if (stopIfIdle) {
-                                break;
-                            }
-                            worker.beforePossibleOrSureWait(attemptSequence-1);
-                            writeWaitStopBC.sequence_WWSBC = attemptSequence;
-                            writeWaitCondilock.awaitUntilNanosTimeoutTimeWhileFalseInLock(writeWaitStopBC,Long.MAX_VALUE);
-                            if (writeWaitStopBC.trueBecauseOfState_WWSBC) {
-                                break;
-                            }
-                        }
-                        batchEndSequence = Math.min(writeWaitStopBC.localMPSC_WWSBC, endSequence);
+                        sequenceToWaitForPublication = attemptSequence;
+                        maxSequenceAllowedToRead = endSequence;
                     }
+                    
+                    /*
+                     * Waiting for sequenceToWaitForPublication to be published.
+                     */
+                    
+                    if (!MyWriteWaitStopBC.isBehindPublishers(writeWaitStopBC, sequenceToWaitForPublication)) {
+                        // No need to call onBatchEnd if needed before return,
+                        // it's taken care of in runWorkerImplAfterStateAndMPSUpdates(...):
+                        // calling it if needed ONLY before actual (or possible) waits,
+                        // or in finally clause in runWorkerImplAfterStateAndMPSUpdates(...).
+                        if (stopIfIdle) {
+                            break;
+                        }
+                        worker.beforePossibleOrSureWait(attemptSequence-1);
+                        writeWaitStopBC.sequence_WWSBC = sequenceToWaitForPublication;
+                        writeWaitCondilock.awaitUntilNanosTimeoutTimeWhileFalseInLock(writeWaitStopBC,Long.MAX_VALUE);
+                        if (writeWaitStopBC.trueBecauseOfState_WWSBC) {
+                            break;
+                        }
+                    }
+                    final long batchEndSequence = Math.min(writeWaitStopBC.localMPSC_WWSBC, maxSequenceAllowedToRead);
 
                     /*
-                     * reading a batch of sequences
+                     * Reading a batch of sequences.
                      */
 
                     do {
@@ -569,7 +560,7 @@ public class MulticastRingBuffer extends AbstractRingBuffer {
                     }
                 } finally {
                     if (attemptSequence != attemptSequenceBeforeTry) {
-                        if(ASSERTIONS)assert(attemptSequence > attemptSequenceBeforeTry);
+                        if(AZZERTIONS)LangUtils.azzert(attemptSequence > attemptSequenceBeforeTry);
                         if (SET_VOLATILE_MPS_ONLY_BEFORE_WAITING) {
                             worker.setMaxPassedSequenceLocal(attemptSequence-1);
                         } else {
@@ -695,7 +686,6 @@ public class MulticastRingBuffer extends AbstractRingBuffer {
         final MulticastRingBuffer ringBuffer;
         final boolean service;
         final PostPaddedAtomicInteger ringBufferState;
-        final PostPaddedAtomicLong sharedMaxPubSeqContiguous;
         final InterfaceCondilock readWaitCondilock;
         final InterfaceCondilock writeWaitCondilock;
         final int indexMask;
@@ -704,7 +694,6 @@ public class MulticastRingBuffer extends AbstractRingBuffer {
             this.ringBuffer = ringBuffer;
             this.service = ringBuffer.service;
             this.ringBufferState = ringBuffer.ringBufferState;
-            this.sharedMaxPubSeqContiguous = ringBuffer.sharedMaxPubSeqContiguous;
             this.readWaitCondilock = ringBuffer.readWaitCondilock;
             this.writeWaitCondilock = ringBuffer.writeWaitCondilock;
             this.indexMask = ringBuffer.indexMask;
@@ -784,7 +773,7 @@ public class MulticastRingBuffer extends AbstractRingBuffer {
                     return acquirableSequence;
                 }
                 // Someone else got it before us: will try to get another sequence.
-                if(ASSERTIONS)assert(!(port instanceof MyPublishPort_SinglePub));
+                if(AZZERTIONS)LangUtils.azzert(!(port instanceof MyPublishPort_SinglePub));
             }
         }
         private static long tryClaimSequence_static(MyAbstractPublishPort port, long timeoutNS) throws InterruptedException {
@@ -823,7 +812,7 @@ public class MulticastRingBuffer extends AbstractRingBuffer {
                     return acquirableSequence;
                 }
                 // Someone else got it before us: will try to get another sequence.
-                if(ASSERTIONS)assert(!(port instanceof MyPublishPort_SinglePub));
+                if(AZZERTIONS)LangUtils.azzert(!(port instanceof MyPublishPort_SinglePub));
             }
         }
         private static long claimSequence_static(MyAbstractPublishPort port) {
@@ -836,7 +825,7 @@ public class MulticastRingBuffer extends AbstractRingBuffer {
                 return acquiredSequence;
             } else {
                 // Shut down (sequence lost).
-                if(ASSERTIONS)assert(port.service);
+                if(AZZERTIONS)LangUtils.azzert(port.service);
                 if (port.canPublishAcquiredSequencesOnShutDown(acquiredSequence,1)) {
                     return acquiredSequence;
                 } else {
@@ -864,7 +853,7 @@ public class MulticastRingBuffer extends AbstractRingBuffer {
                 return minAcquiredSequence;
             } else {
                 // Shut down (sequences lost).
-                if(ASSERTIONS)assert(port.service);
+                if(AZZERTIONS)LangUtils.azzert(port.service);
                 if (port.canPublishAcquiredSequencesOnShutDown(minAcquiredSequence,actualNbrOfSequences)) {
                     nbrOfSequences.value = actualNbrOfSequences;
                     return minAcquiredSequence;
@@ -903,8 +892,8 @@ public class MulticastRingBuffer extends AbstractRingBuffer {
                 MyAbstractPublishPort port,
                 long minSequence,
                 long maxSequence) {
-            if(ASSERTIONS)assert(port.service);
-            if(ASSERTIONS)assert(isShutdown(port.ringBufferState.get()));
+            if(AZZERTIONS)LangUtils.azzert(port.service);
+            if(AZZERTIONS)LangUtils.azzert(isShutdown(port.ringBufferState.get()));
 
             final long minToReject = port.ringBuffer.minSequenceToReject.getBlockingUninterruptibly();
             if (port.ringBuffer.singlePublisher) {
@@ -941,11 +930,13 @@ public class MulticastRingBuffer extends AbstractRingBuffer {
 
     private static class MyPublishPort_SinglePub extends MyAbstractPublishPort {
         final boolean writeLazySets;
+        final PostPaddedAtomicLong singlePubMaxPubSeq;
         final MyPublishPortLocals locals;
         long nextSequence = INITIAL_SEQUENCE;
         public MyPublishPort_SinglePub(MulticastRingBuffer ringBuffer) {
             super(ringBuffer);
             this.writeLazySets = ringBuffer.writeLazySets;
+            this.singlePubMaxPubSeq = ringBuffer.singlePubMaxPubSeq;
             this.locals = new MyPublishPortLocals(ringBuffer);
         }
         @Override
@@ -959,7 +950,7 @@ public class MulticastRingBuffer extends AbstractRingBuffer {
         @Override
         protected boolean sequencer_isCurrentAndCompareAndIncrement(long expected) {
             // Only used with current value as expected value.
-            if(ASSERTIONS)assert(this.nextSequence == expected);
+            if(AZZERTIONS)LangUtils.azzert(this.nextSequence == expected);
             this.nextSequence++;
             return true;
         }
@@ -977,13 +968,13 @@ public class MulticastRingBuffer extends AbstractRingBuffer {
         protected final void publishInternal(
                 long minSequence,
                 int nbrOfSequences) {
-            if(ASSERTIONS)assert(minSequence > this.sharedMaxPubSeqContiguous.get());
-            if(ASSERTIONS)assert(nbrOfSequences > 0);
+            if(AZZERTIONS)LangUtils.azzert(minSequence > this.singlePubMaxPubSeq.get());
+            if(AZZERTIONS)LangUtils.azzert(nbrOfSequences > 0);
             final long maxSequence = minSequence + nbrOfSequences - 1;
             if (this.writeLazySets) {
-                this.sharedMaxPubSeqContiguous.lazySet(maxSequence);
+                this.singlePubMaxPubSeq.lazySet(maxSequence);
             } else {
-                this.sharedMaxPubSeqContiguous.set(maxSequence);
+                this.singlePubMaxPubSeq.set(maxSequence);
             }
             onPublish(this, minSequence, maxSequence);
         }
@@ -1031,7 +1022,7 @@ public class MulticastRingBuffer extends AbstractRingBuffer {
         protected final void publishInternal(
                 long minSequence,
                 int nbrOfSequences) {
-            if(ASSERTIONS)assert(nbrOfSequences > 0);
+            if(AZZERTIONS)LangUtils.azzert(nbrOfSequences > 0);
             
             final long maxSequence = minSequence + nbrOfSequences - 1;
             for (long seq=minSequence;seq<maxSequence;seq++) {
@@ -1060,7 +1051,7 @@ public class MulticastRingBuffer extends AbstractRingBuffer {
         protected final boolean canPublishAcquiredSequencesOnShutDown(long minAcquiredSequence, int nbrOfAcquiredSequences) {
             final long minToReject = this.ringBuffer.minSequenceToReject.getBlockingUninterruptibly();
             final long maxAcquiredSequence = minAcquiredSequence + nbrOfAcquiredSequences - 1;
-            if(ASSERTIONS)assert((minToReject <= minAcquiredSequence) || (minToReject > maxAcquiredSequence));
+            if(AZZERTIONS)LangUtils.azzert((minToReject <= minAcquiredSequence) || (minToReject > maxAcquiredSequence));
             // If min to reject is past our range of sequences,
             // that means a higher sequence has been published,
             // which implies that there is room for publishing
@@ -1168,11 +1159,7 @@ public class MulticastRingBuffer extends AbstractRingBuffer {
 
     private final PostPaddedAtomicLong pubSeqM;
 
-    /**
-     * If single publisher, updated by publisher,
-     * else updated by workers.
-     */
-    private final PostPaddedAtomicLong sharedMaxPubSeqContiguous = new PostPaddedAtomicLong(INITIAL_SEQUENCE-1);
+    private final PostPaddedAtomicLong singlePubMaxPubSeq;
 
     /**
      * Used for publishers to make sure not to publish on a slot a subscriber might still have to read.
@@ -1349,9 +1336,15 @@ public class MulticastRingBuffer extends AbstractRingBuffer {
             this.nbrOfWorkersDoneWith_TERMINATE_WHEN_IDLE = null;
         }
         
+        if (this.singlePublisher) {
+            this.singlePubMaxPubSeq = new PostPaddedAtomicLong(INITIAL_SEQUENCE-1);
+        } else {
+            this.singlePubMaxPubSeq = null;
+        }
+        
         /*
          * Taking care to create publishers last,
-         * for them might use other fields in their
+         * for they might use other fields in their
          * construction.
          */
 
@@ -1483,7 +1476,7 @@ public class MulticastRingBuffer extends AbstractRingBuffer {
                                 maxToProcess_T_W_I
                         };
                     } else {
-                        if(ASSERTIONS)assert(maxToProcess_T_A == maxToProcess_T_W_I);
+                        if(AZZERTIONS)LangUtils.azzert(maxToProcess_T_A == maxToProcess_T_W_I);
                         sequencesRangesArray = null;
                     }
                 } else {
@@ -1492,8 +1485,8 @@ public class MulticastRingBuffer extends AbstractRingBuffer {
                     
                     final long minToReject;
                     if (this.singlePublisher) {
-                        final long maxPubSeqCont = this.sharedMaxPubSeqContiguous.get();
-                        if(ASSERTIONS)assert(maxPubSeqCont >= maxToProcess_T_A);
+                        final long maxPubSeqCont = this.singlePubMaxPubSeq.get();
+                        if(AZZERTIONS)LangUtils.azzert(maxPubSeqCont >= maxToProcess_T_A);
                         if (maxPubSeqCont > maxToProcess_T_A) {
                             if (sequencesRangesVector == null) {
                                 sequencesRangesVector = new SequenceRangeVector();
@@ -1638,8 +1631,10 @@ public class MulticastRingBuffer extends AbstractRingBuffer {
             sb.append(sequenceM1);
             sb.append(LangUtils.LINE_SEPARATOR);
         }
-        sb.append("sharedMaxPubSeqContiguous = ");
-        sb.append(sharedMaxPubSeqContiguous.get());
+        if (this.singlePublisher) {
+            sb.append("singlePubMaxPubSeq = ");
+            sb.append(singlePubMaxPubSeq.get());
+        }
         sb.append(LangUtils.LINE_SEPARATOR);
         return sb.toString();
     }
@@ -1677,80 +1672,13 @@ public class MulticastRingBuffer extends AbstractRingBuffer {
         }
     }
 
-    /*
-     * 
-     */
-    
-    /**
-     * Only for multi-publisher case.
-     * @param localMPSC This value must be <= actual max contiguous published sequence
-     *        (else might cause non-yet-published sequence to be considered published).
-     */
-    private long updateAndGetMaxPubSeqContiguous(final long localMPSC) {
-        if(ASSERTIONS)assert(!singlePublisher);
-        
-        long recentMPSC;
-        long newLocalMPSC;
-        if (MPSC_MONOTONIC_WITH_CAS) {
-            // Taking our local as recent, since
-            // we just updated it in a previous test.
-            recentMPSC = localMPSC;
-            // Starting from our previous local.
-            newLocalMPSC = localMPSC;
-        } else {
-            recentMPSC = this.sharedMaxPubSeqContiguous.get();
-            // Need to take max, for volatile might go backward.
-            newLocalMPSC = Math.max(localMPSC, recentMPSC);
-        }
-        
-        long tmpSequence = newLocalMPSC+1;
-        while (true) {
-            final int index = ((int)tmpSequence & this.indexMask);
-            final PostPaddedAtomicLong entry = this.entries[index];
-            final long sequence = entry.get();
-            if (sequence < tmpSequence) {
-                // Not published (negative value), or published at a previous round.
-                if (tmpSequence != newLocalMPSC+1) {
-                    newLocalMPSC = tmpSequence-1;
-                    if (MPSC_MONOTONIC_WITH_CAS) {
-                        if (MPSC_CAS_ONLY_IF_GOOD_CHANCE) {
-                            final long moreRecentMPSC = this.sharedMaxPubSeqContiguous.get();
-                            if (moreRecentMPSC != recentMPSC) {
-                                // Already changed by someone else: taking its value.
-                                return moreRecentMPSC;
-                            }
-                        }
-                        if (this.sharedMaxPubSeqContiguous.compareAndSet(recentMPSC,newLocalMPSC)) {
-                            // Did advance it.
-                            return newLocalMPSC;
-                        } else {
-                            // Returning a fresh value.
-                            // We don't return newLocalMPSC, for it might be > to the
-                            // value set by the successful CAS.
-                            return this.sharedMaxPubSeqContiguous.get();
-                        }
-                    } else {
-                        // Can make it go backward.
-                        this.sharedMaxPubSeqContiguous.lazySet(newLocalMPSC);
-                        return newLocalMPSC;
-                    }
-                } else {
-                    return newLocalMPSC;
-                }
-            }
-            // Can't be ahead.
-            if(ASSERTIONS)assert(sequence == tmpSequence);
-            ++tmpSequence;
-        }
-    }
-    
     /**
      * @return Max published sequence (possibly past non-yet-published sequences),
      *         or INITIAL_SEQUENCE-1 if none has been published yet.
      */
     private long computeMaxPubSeqNonContiguous() {
         if (this.singlePublisher) {
-            return this.sharedMaxPubSeqContiguous.get();
+            return this.singlePubMaxPubSeq.get();
         } else {
             return this.computeMaxPubSeqNonContiguous_multiPublisher();
         }

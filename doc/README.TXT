@@ -45,8 +45,13 @@ alternatives to those of JDK.
 - jodk.lang.ThinTime
 
 --------------------------------------------------------------------------------
--- VERSIONS
+-- MODIFICATIONS HISTORY
 --------------------------------------------------------------------------------
+
+- 2013/01/23 modifications (non-tagged):
+  - BUG FIX: MulticastRingBuffer: published events could be processed before
+    being visible. Could only happen for non-TSO architectures, and in case
+    of multiple subscribers.
 
 - 2012/11/03 modifications (non-tagged):
   - BUG FIX: ByteCopyUtils: The amount of bytes to actually copy was initially
